@@ -230,10 +230,14 @@ def cmd_versions():
         st = {}
 
     updated = same = failed = 0
+    only = os.environ.get("CANDY_ONLY", "").strip()
+    only_set = {x.strip() for x in only.split(",") if x.strip()} if only else None
     for p in pkgs:
         if not p.get("enabled", True):
             continue
         name = p["name"]
+        if only_set is not None and name not in only_set:
+            continue
         if p.get("version"):  # пин — цель фиксирована
             continue
         try:
@@ -258,6 +262,15 @@ def cmd_versions():
     print(f"\nЦели обновлены: {updated}, без изменений: {same}, не проверилось: {failed}")
 
 
+def apply_only(enabled: set[str]) -> set[str]:
+    """Restrict enabled packages to CANDY_ONLY (comma-separated) — for pilots."""
+    only = os.environ.get("CANDY_ONLY", "").strip()
+    if not only:
+        return enabled
+    wanted = {x.strip() for x in only.split(",") if x.strip()}
+    return enabled & wanted
+
+
 def cmd_check():
     """Print packages needing submission."""
     print("Fetching all COPR builds (pagination)...")
@@ -272,6 +285,7 @@ def cmd_check():
         for p in json.load(f).get("packages", []):
             if p.get("enabled", True):
                 enabled.add(p["name"])
+    enabled = apply_only(enabled)
 
     needs = []
     ok = []
@@ -329,6 +343,7 @@ def cmd_submit():
         for p in json.load(f).get("packages", []):
             if p.get("enabled", True):
                 enabled.add(p["name"])
+    enabled = apply_only(enabled)
 
     if not all_builds:
         print("[ABORT] COPR API вернул 0 билдов (сеть/API недоступны) — "

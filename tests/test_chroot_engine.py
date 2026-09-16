@@ -69,15 +69,15 @@ class TestChrootEngine:
             assert "done" in data
 
     def test_chroots_count(self, pkgs_json):
-        """8 чрутов в конфигурации (x86_64/aarch64 × Fedora 43/44/45/rawhide)"""
+        """2 чрута в конфигурации (openSUSE Tumbleweed x86_64/aarch64)"""
         chroots = pkgs_json.get("project", {}).get("chroots", [])
-        assert len(chroots) == 8
+        assert len(chroots) == 2
 
     def test_chroots_format(self, pkgs_json):
-        """Чруты в правильном формате fedora-XX-arch"""
+        """Чруты в правильном формате opensuse-tumbleweed-arch"""
         chroots = pkgs_json.get("project", {}).get("chroots", [])
         for c in chroots:
-            assert c.startswith("fedora-"), f"Неверный формат чрута: {c}"
+            assert c.startswith("opensuse-tumbleweed-"), f"Неверный формат чрута: {c}"
 
     def test_stuck_hours_env(self, monkeypatch):
         """STUCK_HOURS читается из переменной окружения"""

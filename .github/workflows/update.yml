@@ -8,6 +8,10 @@ on:
         description: "Полный ребилд всех пакетов (openSUSE Tumbleweed)"
         type: boolean
         default: false
+      only:
+        description: "Пилот: только эти пакеты через запятую (пусто = все)"
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -58,6 +62,7 @@ jobs:
       - name: Refresh upstream versions (цели для сабмита)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANDY_ONLY: ${{ inputs.only }}
         run: python3 bin/coprase-status.py versions 2>&1 | tee logs/versions.log
 
       - name: Restore SRPM cache
@@ -75,6 +80,8 @@ jobs:
           key: srpm-cache-${{ hashFiles('pkgs.json', 'bin/gen_specs.py', 'bin/make-srpm.sh') }}
 
       - name: Build SRPMs for packages needing submission
+        env:
+          CANDY_ONLY: ${{ inputs.only }}
         run: |
           set -o pipefail
           echo "=== Building/rebuilding SRPMs for packages needing submission ==="
@@ -115,6 +122,8 @@ jobs:
       # intentionally skipped in this openSUSE beta repo.
 
       - name: Submit to COPR (dedup with version comparison)
+        env:
+          CANDY_ONLY: ${{ inputs.only }}
         run: python3 bin/coprase-status.py submit ${{ inputs.full_rebuild == true && '--force' || '' }} 2>&1 | tee logs/submit.log
 
       # NOTE: auto-triage is Fedora-specific (hardcoded Fedora chroots and the
