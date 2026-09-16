@@ -27,7 +27,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -p1 -n %{name}-%{version}
+%autosetup -p1 -n lavat-3.0.0
 
 %build
 export CFLAGS="${CFLAGS:-$RPM_OPT_FLAGS} -Wno-error=format-security"

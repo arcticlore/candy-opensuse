@@ -33,7 +33,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -p1 -n %{name}-%{version}
+%autosetup -p1 -n archey4-4.15.0.0
 
 %build
 %pyproject_wheel

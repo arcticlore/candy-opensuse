@@ -27,7 +27,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -p1 -n %{name}-%{version}
+%autosetup -p1 -n ricksay-e75f53dcdc91baa8f2651328734e2ee7e6654663
 
 %build
 gcc -O2 src/main.c -o ricksay
