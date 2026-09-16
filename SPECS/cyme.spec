@@ -1,0 +1,58 @@
+Name:           cyme
+Version:        3.0.2
+Release:        1%{?dist}
+Summary:        lsusb с красивым выводом и фильтрами
+
+License:        MIT OR Apache-2.0
+URL:            https://github.com/tuna-f1sh/cyme
+Source0:        %{name}-%{version}.tar.gz
+Source1:        %{name}-vendor-%{version}.tar.gz
+%{!?_licensedir:%global _licensedir %{_datadir}/licenses}
+%global debug_package %{nil}
+%global _unpackaged_files_terminate_build 0
+
+
+BuildRequires:  cargo
+BuildRequires:  rust
+BuildRequires:  gcc
+BuildRequires:  gcc-c++
+BuildRequires:  cargo-packaging
+BuildRequires:  libusb1-devel
+
+%description
+lsusb с красивым выводом и фильтрами
+
+ВНИМАНИЕ: пакет из неофициального стороннего репозитория arcticlore/candy.
+Репозиторий в активной разработке — возможны поломки и резкие изменения.
+Помидорами не кидайтесь, лучше заводите issue.
+
+WARNING: this package comes from an UNOFFICIAL third-party repository
+(arcticlore/candy). Work-in-progress: expect breakage and sudden changes.
+Don't throw tomatoes - file issues instead.
+
+%prep
+%autosetup -N -a1 -n %{name}-%{version}
+mkdir -p /tmp/dummybin
+printf '#!/bin/sh\nexit 1\n' > /tmp/dummybin/curl
+chmod +x /tmp/dummybin/curl
+%cargo_prep
+
+%build
+export PATH="/tmp/dummybin:$PATH"
+%cargo_build
+
+%install
+export PATH="/tmp/dummybin:$PATH"
+%cargo_install
+rm -rf %{buildroot}%{_datadir}/cargo
+
+mkdir -p %{buildroot}%{_licensedir}/%{name}
+for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done
+%files
+%{_licensedir}/%{name}
+
+%{_bindir}/cyme
+
+%changelog
+* Wed Sep 16 2026 candy-bot <candy@localhost> - 3.0.2-1
+- Автосборка из апстрим-релиза (terminal-eye-candy pipeline)

@@ -1,0 +1,50 @@
+Name:           fx
+Version:        39.2.0
+Release:        1%{?dist}
+Summary:        Terminal JSON viewer and processor
+
+License:        MIT
+URL:            https://github.com/antonmedv/fx
+Source0:        %{name}-%{version}.tar.gz
+Source1:        %{name}-node-vendor-%{version}.tar.gz
+%{!?_licensedir:%global _licensedir %{_datadir}/licenses}
+%global debug_package %{nil}
+%global _unpackaged_files_terminate_build 0
+
+
+BuildRequires:  go
+
+%description
+Terminal JSON viewer and processor
+
+ВНИМАНИЕ: пакет из неофициального стороннего репозитория arcticlore/candy.
+Репозиторий в активной разработке — возможны поломки и резкие изменения.
+Помидорами не кидайтесь, лучше заводите issue.
+
+WARNING: this package comes from an UNOFFICIAL third-party repository
+(arcticlore/candy). Work-in-progress: expect breakage and sudden changes.
+Don't throw tomatoes - file issues instead.
+
+%prep
+%autosetup -N -a1 -n %{name}-%{version}
+
+%build
+export GOFLAGS='-mod=vendor'
+export CGO_ENABLED=0
+export GOPATH=$(mktemp -d)
+export GOCACHE=$GOPATH/cache
+go build -trimpath -ldflags '-s -w' -o fx .
+
+%install
+install -Dpm0755 fx %{buildroot}%{_bindir}/fx
+
+mkdir -p %{buildroot}%{_licensedir}/%{name}
+for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done
+%files
+%{_licensedir}/%{name}
+
+%{_bindir}/fx
+
+%changelog
+* Wed Sep 16 2026 candy-bot <candy@localhost> - 39.2.0-1
+- Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
