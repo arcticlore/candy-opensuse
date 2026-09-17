@@ -25,7 +25,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -p1 -n %{name}-%{version}
+%autosetup -p1 -n linuxwave-0.4.0
 
 %build
 zig build -Doptimize=ReleaseSafe
@@ -42,5 +42,5 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 %{_bindir}/linuxwave
 
 %changelog
-* Wed Sep 16 2026 candy-bot <candy@localhost> - 0.4.0-1
+* Thu Sep 17 2026 candy-bot <candy@localhost> - 0.4.0-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
