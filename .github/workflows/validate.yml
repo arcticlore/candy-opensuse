@@ -1,0 +1,82 @@
+name: validate (opensuse beta)
+on:
+  push:
+    branches: [master, "ci/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test deps
+        run: pip install pytest pyyaml
+      - name: Generate specs
+        run: python3 bin/gen_specs.py --all
+      - name: Run test suite
+        run: python3 -m pytest -q
+
+  opensuse-specs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Generate specs
+        run: python3 bin/gen_specs.py --all
+      - name: Validate specs in openSUSE Tumbleweed
+        run: |
+          docker run --rm -v "$PWD":/work:ro -w /work registry.opensuse.org/opensuse/tumbleweed bash -ec '
+            zypper -n install -y rpm-build rpm python3 >/dev/null 2>&1 || true
+            zypper -n refresh >/dev/null 2>&1 || true
+
+            echo "== installing macro-provider packages (tolerant) =="
+            for p in \
+              python313-rpm-macros python312-rpm-macros python311-rpm-macros python-rpm-macros \
+              rubygems-devel ruby-devel cargo-packaging rust cargo \
+              nodejs22 nodejs20 nodejs golang go zig meson cmake make gcc gcc-c++ \
+              openssl-devel ; do
+              if zypper -n --no-refresh install -y "$p" >/dev/null 2>&1; then
+                echo "OK      $p"
+              else
+                echo "MISSING $p"
+              fi
+            done
+
+            echo "== macro availability =="
+            for m in gem_name gem_dir gem_cache gem_install \
+                     pyproject_files pyproject_install pyproject_wheel \
+                     pyproject_buildrequires pyproject_save_files pyproject_extras_subpkg \
+                     cargo_prep cargo_install cargo_build cargo_generate_buildrequires ; do
+              v=$(rpm -E "%${m}" 2>/dev/null)
+              if [ "$v" = "%${m}" ]; then
+                echo "UNDEFINED %${m}"
+              else
+                echo "defined   %${m} = $(printf "%s" "$v" | head -c 70)"
+              fi
+            done
+
+            echo "== unexpanded macros across SPECS =="
+            bad=0
+            for s in SPECS/*.spec; do
+              left=$(rpmspec -P "$s" 2>/dev/null | grep -oE "%\{[A-Za-z_][A-Za-z0-9_]*\}" | sort -u | tr "\n" " ")
+              if [ -n "$left" ]; then echo "UNEXPANDED $s :: $left"; bad=$((bad+1)); fi
+            done
+            echo "RESULT unexpanded_specs=$bad"
+
+            echo "== BuildRequires resolvability (pilot) =="
+            for p in jp2a lavat starship ricksay colorls lazygit albafetch yosay archey4 pridefetch neofetch linuxwave; do
+              s="SPECS/$p.spec"; [ -f "$s" ] || continue
+              brs=$(rpmspec -q --buildrequires "$s" 2>/dev/null | tr "\n" " ")
+              miss=""
+              for b in $brs; do
+                zypper -n --no-refresh install --dry-run -y "$b" >/dev/null 2>&1 || miss="$miss $b"
+              done
+              if [ -n "$miss" ]; then echo "BR-MISSING $p ::$miss"; else echo "BR-OK $p"; fi
+            done
+          '
