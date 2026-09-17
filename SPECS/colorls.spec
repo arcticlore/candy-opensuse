@@ -37,6 +37,7 @@ git init -q . && git config user.email b@b.c && git config user.name b && git ad
 # Create missing files referenced by gemspec
 for f in man/*.1 zsh/_*; do [ -f "$f" ] || touch "$f" 2>/dev/null || :; done
 gem build *.gemspec
+%global gem_name colorls
 
 %install
 %gem_install
@@ -49,5 +50,5 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 %exclude %{gem_cache}
 
 %changelog
-* Wed Sep 16 2026 candy-bot <candy@localhost> - 1.5.0-1
+* Thu Sep 17 2026 candy-bot <candy@localhost> - 1.5.0-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
