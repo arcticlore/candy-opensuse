@@ -26,7 +26,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -N -a1 -n lazygit-0.65.1
+%autosetup -N -a1 -n %{name}-%{version}
 
 %build
 export GOFLAGS='-mod=vendor'

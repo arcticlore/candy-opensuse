@@ -27,7 +27,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -p1 -a1 -n yosay-3.0.0
+%autosetup -p1 -a1 -n %{name}-%{version}
 
 %build
 # bundled node_modules, сборка не требуется

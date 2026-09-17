@@ -30,7 +30,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -N -a1 -n starship-1.26.0
+%autosetup -N -a1 -n %{name}-%{version}
 %cargo_prep
 
 %build
