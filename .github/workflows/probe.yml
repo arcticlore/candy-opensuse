@@ -17,47 +17,57 @@ jobs:
         run: |
           docker run --rm registry.opensuse.org/opensuse/tumbleweed bash -ec '
             zypper -n refresh >/dev/null 2>&1 || true
-            zypper -n install -y rpm-build rpm python3 >/dev/null 2>&1 || true
+            zypper -n install -y rpm-build rpm python3 ruby-devel python311-devel python-rpm-macros \
+              cargo-packaging cargo rust zig git curl tar gzip xz >/dev/null 2>&1 || true
 
-            echo "@@@@@ PACKAGES @@@@@"
-            for p in ruby-devel rubygem-gem2rpm python311-devel python-rpm-macros \
-                     python311-rpm-macros python313-rpm-macros cargo-packaging rust-packaging \
-                     rust cargo zig nodejs-packaging golang-packaging ncurses-devel \
-                     libjpeg8-devel python311-dbus-python python311-distro python311-netifaces \
-                     python311-setproctitle ; do
-              if zypper -n --no-refresh install -y "$p" >/dev/null 2>&1; then echo "OK      $p"; else echo "MISSING $p"; fi
+            echo "@@@@@ FULL macros.cargo @@@@@"
+            cat /usr/lib/rpm/macros.d/macros.cargo 2>/dev/null
+
+            echo "@@@@@ cargo-packaging docs/files @@@@@"
+            rpm -ql cargo-packaging 2>/dev/null
+            for d in /usr/share/doc/packages/cargo-packaging/*; do echo "### $d"; cat "$d" 2>/dev/null | head -120; done
+
+            echo "@@@@@ python macros (relevant) @@@@@"
+            grep -nE "^%(python|pyproject)|python_files|python_build|python_install|python_expand|python_subpackages|python3_pkgversion|sitelib|sitearch" \
+              /usr/lib/rpm/macros.d/macros.python_all 2>/dev/null | head -160
+
+            echo "@@@@@ python version + packages @@@@@"
+            echo "python3_pkgversion=$(rpm -E "%{python3_pkgversion}" 2>/dev/null)"
+            echo "python3_bin=$(rpm -E "%{__python3}" 2>/dev/null)"
+            for m in python3-devel python313-devel python313-dbus-python python3-dbus python3-dbus-python \
+                     python3-distro python313-distro python3-netifaces python3-setproctitle ; do
+              if zypper -n --no-refresh install -y "$m" >/dev/null 2>&1; then echo "OK      $m"; else echo "MISSING $m"; fi
             done
 
-            echo "@@@@@ MACROS @@@@@"
-            for m in mod_name mod_full_name gem_dir gem_cache ruby_gem_dir rb_ver gem_install \
-                     cargo_prep cargo_build cargo_install cargo_generate_buildrequires \
-                     pyproject_buildrequires pyproject_save_files pyproject_files pyproject_install \
-                     pyproject_wheel python_sitelib python_sitearch python3_sitelib python_bindir ; do
-              v=$(rpm -E "%${m}" 2>/dev/null)
-              if [ "$v" = "%${m}" ]; then echo "UNDEF %${m}"; else echo "DEF   %${m} = $(printf "%s" "$v" | head -c 100)"; fi
+            echo "@@@@@ gem2rpm (via rubygems) @@@@@"
+            if gem install --no-document gem2rpm >/dev/null 2>&1; then echo "gem2rpm installed"; else echo "gem2rpm install FAILED"; fi
+            gem contents gem2rpm 2>/dev/null | grep -iE "erb|template" | head -20
+            for t in $(gem contents gem2rpm 2>/dev/null | grep -iE "template.*\.erb|\.erb" | head -5); do
+              echo "### $t"; sed -n "1,120p" "$t"
             done
 
-            echo "@@@@@ MACRO FILES @@@@@"
-            grep -rnsE "cargo_prep|cargo_build|cargo_install|mod_full_name|gem_dir|pyproject_files|pyproject_save_files|pyproject_buildrequires" \
-              /usr/lib/rpm/macros.d/ /usr/lib/rpm/*.macros /usr/lib/rpm/rpmrc 2>/dev/null | head -100
+            echo "@@@@@ gem2rpm output for colorls (authoritative) @@@@@"
+            cd /tmp
+            if gem fetch colorls -v 1.5.0 >/dev/null 2>&1; then
+              erb=$(gem contents gem2rpm 2>/dev/null | grep -E "spec.erb$" | head -1)
+              echo "using template: $erb"
+              gem2rpm --template "$erb" colorls-1.5.0.gem 2>&1 | sed -n "1,90p"
+            else
+              echo "gem fetch colorls failed"
+            fi
 
-            echo "@@@@@ GEM LAYOUT @@@@@"
-            ruby -e "puts Gem.default_dir" 2>/dev/null || echo "no ruby"
-            echo "--- gem2rpm files ---"
-            rpm -ql rubygem-gem2rpm 2>/dev/null | head -40
-            echo "--- gem2rpm templates (authoritative %files) ---"
-            for t in $(find /usr/share/gem2rpm -type f 2>/dev/null | head -10); do echo "### $t"; cat "$t"; done
-
-            echo "@@@@@ EXAMPLE INSTALLED GEM @@@@@"
-            for g in rubygem-trollop rubygem-mustache rubygem-json ; do
-              if zypper -n --no-refresh install -y "$g" >/dev/null 2>&1; then echo "### $g"; rpm -ql "$g" | head -30; break; fi
-            done
-
-            echo "@@@@@ NAME LOOKUPS @@@@@"
-            echo "--- ncurses devel ---"; zypper -n se -s ncurses-devel 2>/dev/null | head
-            echo "--- dbus python ---"; zypper -n se -s "*dbus-python*" 2>/dev/null | head
-            echo "--- pyproject packages ---"; zypper -n se -s -x pyproject 2>/dev/null | head
-            echo "--- rust-packaging content ---"; rpm -ql rust-packaging 2>/dev/null | head -30
+            echo "@@@@@ starship vendor tarball layout @@@@@"
+            base="https://copr-dist-git.fedorainfracloud.org/repo/pkgs/arcticlore/candy-opensuse-beta/starship"
+            idx=$(curl -sL --max-time 60 "$base/" 2>/dev/null)
+            echo "$idx" | grep -oE "starship[-a-z0-9.]*\.tar\.gz" | sort -u | head
+            vurl=$(echo "$idx" | grep -oE "href=\"[^\"]*vendor[^\"]*\"" | head -1 | sed "s/href=\"//;s/\"//")
+            echo "vendor url path: $vurl"
+            if [ -n "$vurl" ]; then
+              curl -sL --max-time 120 "https://copr-dist-git.fedorainfracloud.org$vurl" -o /tmp/v.tgz
+              echo "--- top-level ---"; tar tzf /tmp/v.tgz 2>/dev/null | head -15
+              echo "--- entries containing cargo/config or vendor ---"; tar tzf /tmp/v.tgz 2>/dev/null | grep -iE "cargo/config|^vendor/|/vendor/|\.cargo" | head -10
+              echo "--- total entries ---"; tar tzf /tmp/v.tgz 2>/dev/null | wc -l
+            fi
             echo "@@@@@ DONE @@@@@"
           ' 2>&1 | tee probe-output.txt
       - uses: actions/upload-artifact@v7
