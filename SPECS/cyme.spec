@@ -35,7 +35,13 @@ Don't throw tomatoes - file issues instead.
 mkdir -p /tmp/dummybin
 printf '#!/bin/sh\nexit 1\n' > /tmp/dummybin/curl
 chmod +x /tmp/dummybin/curl
-%cargo_prep
+mkdir -p .cargo
+cat > .cargo/config.toml <<'EOF'
+[source.crates-io]
+replace-with = "vendored-sources"
+[source.vendored-sources]
+directory = "vendor"
+EOF
 
 %build
 export PATH="/tmp/dummybin:$PATH"

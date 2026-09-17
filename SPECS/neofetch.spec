@@ -26,7 +26,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -p1 -n neofetch-7.1.0
+%autosetup -p1 -n %{name}-%{version}
 
 %build
 # чистый скрипт, сборка не требуется

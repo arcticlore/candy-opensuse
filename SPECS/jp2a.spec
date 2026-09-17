@@ -37,7 +37,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -p1 -n jp2a-1.3.3
+%autosetup -p1 -n %{name}-%{version}
 
 %build
 export CFLAGS="${CFLAGS:-$RPM_OPT_FLAGS} -Wno-error=format-security"

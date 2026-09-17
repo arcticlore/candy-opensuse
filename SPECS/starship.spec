@@ -30,8 +30,14 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -N -a1 -n starship-1.26.0
-%cargo_prep
+%autosetup -N -a1 -n %{name}-%{version}
+mkdir -p .cargo
+cat > .cargo/config.toml <<'EOF'
+[source.crates-io]
+replace-with = "vendored-sources"
+[source.vendored-sources]
+directory = "vendor"
+EOF
 
 %build
 %cargo_build

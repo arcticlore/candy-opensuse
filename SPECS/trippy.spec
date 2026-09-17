@@ -31,7 +31,13 @@ Don't throw tomatoes - file issues instead.
 
 %prep
 %autosetup -N -a1 -n %{name}-%{version}
-%cargo_prep
+mkdir -p .cargo
+cat > .cargo/config.toml <<'EOF'
+[source.crates-io]
+replace-with = "vendored-sources"
+[source.vendored-sources]
+directory = "vendor"
+EOF
 
 %build
 cd crates/trippy
