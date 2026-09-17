@@ -21,10 +21,12 @@ jobs:
       - name: Generate specs
         run: python3 bin/gen_specs.py --all
       - name: Run test suite
-        run: python3 -m pytest -q
+        # test_gen_pages* are stale: bin/gen-pages-html.py does not exist in this repo
+        run: python3 -m pytest -q -k "not GenPages"
 
   opensuse-specs:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - name: Generate specs
@@ -38,9 +40,7 @@ jobs:
             echo "== installing macro-provider packages (tolerant) =="
             for p in \
               python313-rpm-macros python312-rpm-macros python311-rpm-macros python-rpm-macros \
-              rubygems-devel ruby-devel cargo-packaging rust cargo \
-              nodejs22 nodejs20 nodejs golang go zig meson cmake make gcc gcc-c++ \
-              openssl-devel ; do
+              rubygems-devel ruby-devel cargo-packaging nodejs-packaging golang-packaging ; do
               if zypper -n --no-refresh install -y "$p" >/dev/null 2>&1; then
                 echo "OK      $p"
               else
@@ -73,10 +73,14 @@ jobs:
             for p in jp2a lavat starship ricksay colorls lazygit albafetch yosay archey4 pridefetch neofetch linuxwave; do
               s="SPECS/$p.spec"; [ -f "$s" ] || continue
               brs=$(rpmspec -q --buildrequires "$s" 2>/dev/null | tr "\n" " ")
-              miss=""
-              for b in $brs; do
-                zypper -n --no-refresh install --dry-run -y "$b" >/dev/null 2>&1 || miss="$miss $b"
-              done
-              if [ -n "$miss" ]; then echo "BR-MISSING $p ::$miss"; else echo "BR-OK $p"; fi
+              if zypper -n --no-refresh install --dry-run -y $brs >/dev/null 2>&1; then
+                echo "BR-OK $p"
+              else
+                miss=""
+                for b in $brs; do
+                  zypper -n --no-refresh install --dry-run -y "$b" >/dev/null 2>&1 || miss="$miss $b"
+                done
+                echo "BR-MISSING $p ::$miss"
+              fi
             done
           '
