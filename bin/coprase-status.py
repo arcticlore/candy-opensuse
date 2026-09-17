@@ -32,8 +32,9 @@ SUBMIT_TIMEOUT = 180
 SUBMIT_ATTEMPTS = 3
 
 
-def copr_api(endpoint: str, extra: str = "") -> dict:
-    """Query COPR API."""
+def copr_api(endpoint: str, extra: str = "") -> dict | None:
+    """Query COPR API. Returns None on network/parse failure (distinguishable
+    from a valid empty response, which matters for a fresh project with 0 builds)."""
     url = f"{COPR_URL}/{endpoint}"
     if extra:
         url += f"?{extra}"
@@ -45,11 +46,12 @@ def copr_api(endpoint: str, extra: str = "") -> dict:
         return json.loads(r.stdout)
     except Exception as e:
         print(f"  [WARN] COPR API error: {e}", file=sys.stderr)
-        return {}
+        return None
 
 
-def fetch_all_builds(owner: str, project: str) -> list[dict]:
-    """Fetch ALL builds with pagination."""
+def fetch_all_builds(owner: str, project: str) -> list[dict] | None:
+    """Fetch ALL builds with pagination. Returns None if the API is unreachable;
+    returns [] for a valid project that simply has no builds yet."""
     all_builds: list[dict] = []
     offset = 0
     while True:
@@ -57,6 +59,8 @@ def fetch_all_builds(owner: str, project: str) -> list[dict]:
             "build/list",
             f"ownername={owner}&projectname={project}&limit={PAGE_LIMIT}&offset={offset}",
         )
+        if data is None:
+            return None
         items = data.get("items", [])
         all_builds.extend(items)
         if len(items) < PAGE_LIMIT:
@@ -166,6 +170,8 @@ def get_copr_active() -> dict[str, str]:
         f"ownername={OWNER}&projectname={PROJECT}&limit=200&status=running+starting+pending+importing",
     )
     states: dict[str, str] = {}
+    if data is None:
+        return states
     for b in data.get("items", []):
         sp = b.get("source_package", {})
         name = sp.get("name", "")
@@ -275,6 +281,9 @@ def cmd_check():
     """Print packages needing submission."""
     print("Fetching all COPR builds (pagination)...")
     all_builds = fetch_all_builds(OWNER, PROJECT)
+    if all_builds is None:
+        print("[ABORT] COPR API недоступен — статус неизвестен.", file=sys.stderr)
+        return
     print(f"Total builds fetched: {len(all_builds)}")
 
     history = build_history(all_builds)
@@ -333,6 +342,10 @@ def cmd_submit():
     """Slot-managed submit loop."""
     print("Fetching all COPR builds (pagination)...")
     all_builds = fetch_all_builds(OWNER, PROJECT)
+    if all_builds is None:
+        print("[ABORT] COPR API недоступен — подтверждения статуса нет, "
+              "чтобы не плодить дубликаты.", file=sys.stderr)
+        return
     print(f"Total builds fetched: {len(all_builds)}")
 
     history = build_history(all_builds)
@@ -344,12 +357,8 @@ def cmd_submit():
             if p.get("enabled", True):
                 enabled.add(p["name"])
     enabled = apply_only(enabled)
-
-    if not all_builds:
-        print("[ABORT] COPR API вернул 0 билдов (сеть/API недоступны) — "
-              "подтверждения статуса нет, чтобы не плодить дубликаты.",
-              file=sys.stderr)
-        return
+    # NB: 0 builds is valid for a fresh project — proceed. needs_submission()
+    # returns True for every package with no history, so everything gets built.
 
     # Determine what needs submission
     force = "--force" in sys.argv
@@ -424,6 +433,9 @@ def cmd_submit():
 def cmd_clean():
     """List duplicate builds (informational)."""
     all_builds = fetch_all_builds(OWNER, PROJECT)
+    if all_builds is None:
+        print("[ABORT] COPR API недоступен — статус неизвестен.", file=sys.stderr)
+        return
     history = build_history(all_builds)
 
     dups = {}
