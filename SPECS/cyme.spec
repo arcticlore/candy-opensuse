@@ -31,7 +31,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -N -a1 -n %{name}-%{version}
+%autosetup -N -a1 -n cyme-3.0.2
 mkdir -p /tmp/dummybin
 printf '#!/bin/sh\nexit 1\n' > /tmp/dummybin/curl
 chmod +x /tmp/dummybin/curl
@@ -54,5 +54,5 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 %{_bindir}/cyme
 
 %changelog
-* Thu Sep 17 2026 candy-bot <candy@localhost> - 3.0.2-1
+* Fri Sep 18 2026 candy-bot <candy@localhost> - 3.0.2-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)

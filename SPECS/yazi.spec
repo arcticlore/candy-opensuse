@@ -32,7 +32,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -N -a1 -n %{name}-%{version}
+%autosetup -N -a1 -n yazi-26.8.15
 %cargo_prep
 
 %build
@@ -55,5 +55,5 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 %{_bindir}/ya
 
 %changelog
-* Thu Sep 17 2026 candy-bot <candy@localhost> - 26.8.15-1
+* Fri Sep 18 2026 candy-bot <candy@localhost> - 26.8.15-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)

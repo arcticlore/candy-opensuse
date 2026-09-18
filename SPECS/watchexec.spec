@@ -32,7 +32,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -N -a1 -n %{name}-%{version}
+%autosetup -N -a1 -n watchexec-2.7.3
 %cargo_prep
 
 %build
@@ -52,5 +52,5 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 %{_bindir}/watchexec
 
 %changelog
-* Thu Sep 17 2026 candy-bot <candy@localhost> - 2.7.3-1
+* Fri Sep 18 2026 candy-bot <candy@localhost> - 2.7.3-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)

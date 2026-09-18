@@ -25,7 +25,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -p1 -n %{name}-%{version}
+%autosetup -p1 -n ponysay-3.0.3
 
 %build
 # чистый скрипт, сборка не требуется
@@ -38,5 +38,5 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 %{_licensedir}/%{name}
 
 %changelog
-* Thu Sep 17 2026 candy-bot <candy@localhost> - 3.0.3-1
+* Fri Sep 18 2026 candy-bot <candy@localhost> - 3.0.3-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)

@@ -28,7 +28,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -p1 -n %{name}-%{version}
+%autosetup -p1 -n tfire-0.3.0
 
 %build
 # интерпретируемый модуль, сборки нет
@@ -44,5 +44,5 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 %{_bindir}/tfire
 
 %changelog
-* Thu Sep 17 2026 candy-bot <candy@localhost> - 0.3.0-1
+* Fri Sep 18 2026 candy-bot <candy@localhost> - 0.3.0-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
