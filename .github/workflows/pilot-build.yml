@@ -4,8 +4,11 @@ on:
     inputs:
       pkgs:
         description: "Пилотные пакеты через запятую (например tealdeer,broot,dua)"
-        required: true
+        required: false
         type: string
+        default: "archey4,colorls,tealdeer"
+  push:
+    branches: ["ci/pilot/**"]
 
 permissions:
   contents: read
@@ -34,7 +37,7 @@ jobs:
         id: pilot
         env:
           COPR_PROJECT: arcticlore/candy-opensuse-pilot
-          PKGS: ${{ inputs.pkgs }}
+          PKGS: ${{ inputs.pkgs || 'archey4,colorls,tealdeer' }}
         run: |
           mkdir -p logs
           for name in $(echo "$PKGS" | tr ',' ' '); do
