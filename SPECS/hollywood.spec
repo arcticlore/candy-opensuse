@@ -32,7 +32,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -p1 -n hollywood-1.25
+%autosetup -p1 -n %{name}-%{version}
 
 %build
 # чистый скрипт, сборка не требуется
@@ -49,5 +49,5 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 /usr/libexec/hollywood
 
 %changelog
-* Fri Sep 18 2026 candy-bot <candy@localhost> - 1.25-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.25-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)

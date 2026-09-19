@@ -26,7 +26,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -N -a1 -n lazydocker-0.25.2
+%autosetup -N -a1 -n %{name}-%{version}
 
 %build
 export GOFLAGS='-mod=vendor'
@@ -46,5 +46,5 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 %{_bindir}/lazydocker
 
 %changelog
-* Fri Sep 18 2026 candy-bot <candy@localhost> - 0.25.2-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 0.25.2-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)

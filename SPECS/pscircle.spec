@@ -29,7 +29,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -p1 -n pscircle-v1.4.0
+%autosetup -p1 -n %{name}-v%{version}
 
 %build
 %meson
@@ -44,5 +44,5 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 %{_bindir}/*
 
 %changelog
-* Fri Sep 18 2026 candy-bot <candy@localhost> - 1.4.0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.4.0-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)

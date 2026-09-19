@@ -27,7 +27,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -p1 -n tty-solitaire-1.4.1
+%autosetup -p1 -n %{name}-%{version}
 
 %build
 export CFLAGS="${CFLAGS:-$RPM_OPT_FLAGS} -Wno-error=format-security"
@@ -42,5 +42,5 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 %{_bindir}/ttysolitaire
 
 %changelog
-* Fri Sep 18 2026 candy-bot <candy@localhost> - 1.4.1-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.4.1-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)

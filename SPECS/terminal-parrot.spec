@@ -26,7 +26,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -N -a1 -n terminal-parrot-1.2.1
+%autosetup -N -a1 -n %{name}-%{version}
 
 %build
 export GOFLAGS='-mod=vendor'
@@ -46,5 +46,5 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 %{_bindir}/terminal-parrot
 
 %changelog
-* Fri Sep 18 2026 candy-bot <candy@localhost> - 1.2.1-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.2.1-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
