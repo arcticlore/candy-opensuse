@@ -114,7 +114,7 @@ jobs:
           for bid in ${{ steps.pilot.outputs.build_ids }}; do
             echo "=== waiting build $bid ==="
             rc=0
-            python3 bin/copr-waiter.py --build-id "$bid" --pkgs-json "$PKGS_JSON" \
+            python3 bin/copr_waiter.py --build-id "$bid" --pkgs-json "$PKGS_JSON" \
               --timeout-min 180 --interval 60 || rc=$?
             echo "  waiter rc=$rc for build $bid"
             [ "$rc" -ne 0 ] && total_rc=$rc
