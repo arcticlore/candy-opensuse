@@ -1,20 +1,107 @@
 {
-  "schema_version": 2,
-  "generated_at": "2026-09-19T21:14:12Z",
+  "schema_version": 3,
+  "generated_at": "2026-09-19T21:21:20Z",
   "source": {
     "github": "https://github.com/arcticlore/candy-opensuse-beta",
-    "production_copr": "https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse-beta/",
-    "pilot_copr": "https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse-pilot/",
+    "production_copr": {
+      "name": "arcticlore/candy-opensuse-beta",
+      "url": "https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse-beta/"
+    },
+    "pilot_copr": {
+      "name": "arcticlore/candy-opensuse-pilot",
+      "url": "https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse-pilot/"
+    },
     "branch": "master",
     "commit": "ef0cba0301442b5f579eafff13fa8925b3e2b184"
   },
-  "chroots_required": [
-    "opensuse-tumbleweed-x86_64",
-    "opensuse-tumbleweed-aarch64",
-    "opensuse-leap-16.0-x86_64",
-    "opensuse-leap-16.0-aarch64"
-  ],
-  "per_chroot": {
+  "github": {
+    "reported_default_branch": "master",
+    "branch_main_exists": false,
+    "branch_master_sha": "ef0cba0301442b5f579eafff13fa8925b3e2b184",
+    "intended_working_base": "master",
+    "note": "Заявленный drift 'API сообщает default_branch=main' НЕ воспроизводится: git HEAD, gh repo view и raw API дают master; ветки main не существует. Настройка default branch не менялась."
+  },
+  "chroots": {
+    "required": [
+      "opensuse-tumbleweed-x86_64",
+      "opensuse-tumbleweed-aarch64",
+      "opensuse-leap-16.0-x86_64",
+      "opensuse-leap-16.0-aarch64"
+    ],
+    "repo_declared": [
+      "opensuse-tumbleweed-x86_64",
+      "opensuse-tumbleweed-aarch64"
+    ],
+    "production_active": [
+      "opensuse-tumbleweed-x86_64",
+      "opensuse-tumbleweed-aarch64",
+      "opensuse-leap-16.0-x86_64",
+      "opensuse-leap-16.0-aarch64"
+    ],
+    "pilot_active": [
+      "opensuse-tumbleweed-x86_64",
+      "opensuse-tumbleweed-aarch64"
+    ]
+  },
+  "enable_net": {
+    "production": false,
+    "pilot": null
+  },
+  "packages": {
+    "enabled": 128,
+    "disabled": 19,
+    "total": 147
+  },
+  "monitor_packages": 123,
+  "invariant_total_128": 3024,
+  "raw_build_object_counts": {
+    "failed": 205,
+    "succeeded": 68
+  },
+  "queued_running_counts": {
+    "production": {},
+    "pilot": {}
+  },
+  "probe": {
+    "branch": "probe/opensuse-intel",
+    "head_sha": "b767c3142c42a494735bdf6bc96c1dd87f4ad8a5",
+    "master_ahead": 5,
+    "probe_ahead": 3,
+    "merge_base": "d69ef5b5bcfdb46b111df0f6fc084a4695c7b924",
+    "policy": "не merge/не cherry-pick; только knowledge; архив и удаление только с approval владельца"
+  },
+  "az5_stop_file": "present",
+  "matrix_128_canonical": {
+    "opensuse-tumbleweed-x86_64": {
+      "succeeded": 57,
+      "failed": 66,
+      "none": 0,
+      "missing": 5,
+      "total": 128
+    },
+    "opensuse-tumbleweed-aarch64": {
+      "succeeded": 57,
+      "failed": 66,
+      "none": 0,
+      "missing": 5,
+      "total": 128
+    },
+    "opensuse-leap-16.0-x86_64": {
+      "succeeded": 9,
+      "failed": 69,
+      "none": 45,
+      "missing": 5,
+      "total": 128
+    },
+    "opensuse-leap-16.0-aarch64": {
+      "succeeded": 9,
+      "failed": 69,
+      "none": 45,
+      "missing": 5,
+      "total": 128
+    }
+  },
+  "latest_package_x_chroot_raw_monitor": {
     "opensuse-tumbleweed-x86_64": {
       "succeeded": 57,
       "failed": 66
@@ -24,32 +111,14 @@
       "failed": 66
     },
     "opensuse-leap-16.0-x86_64": {
+      "missing": 45,
       "failed": 69,
       "succeeded": 9
     },
     "opensuse-leap-16.0-aarch64": {
+      "missing": 45,
       "failed": 69,
       "succeeded": 9
     }
-  },
-  "four_of_four_green": [
-    "ascsaver",
-    "duckpond",
-    "oh-my-zsh",
-    "rickrollrc",
-    "ricksay",
-    "rxfetch",
-    "snakes",
-    "tspace",
-    "ufetch"
-  ],
-  "missing_packages_including_chroot_absence": [
-    "fend",
-    "pure",
-    "tabiew",
-    "wtfutil",
-    "zenith"
-  ],
-  "enable_net": false,
-  "az5_stop_file": "present"
+  }
 }
