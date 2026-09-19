@@ -11,11 +11,8 @@ Source0:        %{name}-%{version}.tar.gz
 %global _unpackaged_files_terminate_build 0
 
 
-BuildRequires:  python311-devel
+BuildRequires:  python313-devel
 BuildRequires:  python-rpm-macros
-
-%generate_buildrequires
-%pyproject_buildrequires | grep -vE '(python3dist(streamlink))( |$)' || :
 
 %description
 Procedural ASCII bonsai tree generator
@@ -36,11 +33,11 @@ Don't throw tomatoes - file issues instead.
 
 %install
 %pyproject_install
-%pyproject_save_files -l '*'
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
 for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done
-%files -f %{pyproject_files}
+%files
+%{python3_sitelib}/*
 
 %changelog
 * Sat Sep 19 2026 candy-bot <candy@localhost> - 3.0.0-1

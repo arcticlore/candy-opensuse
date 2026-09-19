@@ -16,7 +16,6 @@ BuildRequires:  cargo
 BuildRequires:  rust
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
-BuildRequires:  cargo-packaging
 
 %description
 Over-engineered pipes.sh на Rust
@@ -31,16 +30,22 @@ Don't throw tomatoes - file issues instead.
 
 %prep
 %autosetup -N -a1 -n pipes-rs-1.6.4
-%cargo_prep
+mkdir -p .cargo
+cat > .cargo/config.toml <<'EOF'
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+EOF
 
 %build
 cd crates/pipes-rs
-%cargo_build
+cargo build --release --offline
 
 %install
 cd crates/pipes-rs
-%cargo_install
-rm -rf %{buildroot}%{_datadir}/cargo
+install -Dpm0755 target/release/pipes-rs %{buildroot}%{_bindir}/pipes-rs
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
 for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done

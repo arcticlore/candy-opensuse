@@ -188,18 +188,27 @@ def esc_pct(s: str) -> str:
 SUSE_NAME_MAP = {
     "cargo-rpm-macros": "cargo-packaging",
     "pyproject-rpm-macros": "python-rpm-macros",
-    "python3-devel": "python311-devel",
-    "python3": "python311",
+    "python3-devel": "python313-devel",
+    "python3": "python313",
     "golang": "go",
     "nodejs": "nodejs-default",
     "ruby(release)": "ruby",
     "rubygems-devel": "ruby-devel",
+    "python3-dbus": "python313-dbus-python",
+    "libusb1-devel": "libusb-1_0-devel",
+    "libjpeg-turbo-devel": "libjpeg8-devel",
+    "glslang": "glslang-devel",
 }
 
 
 def suse(name: str) -> str:
     """Translate a Fedora package name to its openSUSE equivalent."""
-    return SUSE_NAME_MAP.get(name, name)
+    if name in SUSE_NAME_MAP:
+        return SUSE_NAME_MAP[name]
+    # Tumbleweed's default python3 is 3.13: any python3-<mod> maps to python313-<mod>.
+    if name.startswith("python3-"):
+        return "python313-" + name[len("python3-"):]
+    return name
 
 
 def header(m: Package, ver: str) -> list[str]:
@@ -286,9 +295,18 @@ def prep(m: Package) -> str:
 
 
 def add_br_req(out: list[str], br: list[str], req: list[str]) -> None:
-    """Add BuildRequires and Requires lines (openSUSE names)."""
-    out.extend([f"BuildRequires:  {suse(x)}" for x in br])
-    out.extend([f"Requires:       {suse(x)}" for x in req])
+    """Add BuildRequires and Requires lines (openSUSE names), dedup'd."""
+    seen: set[str] = set()
+    for x in br:
+        n = suse(x)
+        if n not in seen:
+            seen.add(n)
+            out.append(f"BuildRequires:  {n}")
+    for x in req:
+        n = suse(x)
+        if n not in seen:
+            seen.add(n)
+            out.append(f"Requires:       {n}")
 
 
 def body_script(m: Package, br: list[str], req: list[str]) -> str:
@@ -362,19 +380,12 @@ def body_script(m: Package, br: list[str], req: list[str]) -> str:
 
 
 def body_python_pkg(m: Package, br: list[str], req: list[str]) -> str:
-    """Generate body for python-pkg ecosystem."""
+    """Generate body for python-pkg ecosystem (openSUSE-native)."""
     br = ["python3-devel", "pyproject-rpm-macros"] + br
     out: list[str] = []
     add_br_req(out, br, req)
 
-    br_cmd = "%pyproject_buildrequires"
-    if m.pbr_exclude:
-        pat = "|".join(f"python3dist({e})" for e in m.pbr_exclude)
-        br_cmd = f"{br_cmd} | grep -vE '({pat})( |$)' || :"
     out += [
-        "",
-        "%generate_buildrequires",
-        br_cmd,
         "",
         prep(m),
         "",
@@ -383,9 +394,9 @@ def body_python_pkg(m: Package, br: list[str], req: list[str]) -> str:
         "",
         "%install",
         "%pyproject_install",
-        "%pyproject_save_files -l '*'",
         "",
-        "%files -f %{pyproject_files}",
+        "%files",
+        "%{python3_sitelib}/*",
     ] + m.extra_files
 
     return "\n".join(out) + "\n"
@@ -429,32 +440,48 @@ def body_python_script(m: Package, br: list[str], req: list[str]) -> str:
 
 
 def body_cargo(m: Package, br: list[str], req: list[str]) -> str:
-    """Generate body for cargo ecosystem."""
-    br = ["cargo", "rust", "gcc", "gcc-c++", "cargo-rpm-macros"] + br
+    """Generate body for cargo ecosystem (openSUSE: без %cargo_prep/%cargo_build).
+
+    openSUSE Tumbleweed не определяет Fedora-макросы %cargo_prep/%cargo_build/
+    %cargo_install (cargo-packaging). Поэтому: vendor-источники через
+    .cargo/config.toml + cargo build --release --offline + ручной install.
+    """
+    br = ["cargo", "rust", "gcc", "gcc-c++"] + br
     out: list[str] = []
     add_br_req(out, br, req)
 
     cd_b = f"cd {m.cdir}\n" if m.cdir else ""
     envs = "".join(f"export {e}\n" for e in m.build_env)
+    bins = m.bins or ["%{name}"]
+    inst = "\n".join(
+        f"install -Dpm0755 target/release/{b} %{{buildroot}}%{{_bindir}}/{b}"
+        for b in bins
+    )
 
     out += [
         "",
         prep(m),
-        "%cargo_prep",
+        f"mkdir -p .cargo",
+        "cat > .cargo/config.toml <<'EOF'",
+        '[source.crates-io]',
+        'replace-with = "vendored-sources"',
+        "",
+        "[source.vendored-sources]",
+        'directory = "vendor"',
+        "EOF",
         "",
         "%build",
-        cd_b + envs + "%cargo_build",
+        cd_b + envs + "cargo build --release --offline",
         "",
         "%install",
-        cd_b + envs + "%cargo_install",
-        "rm -rf %{buildroot}%{_datadir}/cargo",
+        cd_b + inst,
         "",
         "%files",
         "%license LICENSE* COPYRIGHT*",
         "%doc README*",
     ]
 
-    for b in m.bins or ["%{name}"]:
+    for b in bins:
         out.append(f"%{{_bindir}}/{b}")
 
     return "\n".join(out) + "\n"
@@ -527,9 +554,14 @@ def body_npm(m: Package, br: list[str], req: list[str]) -> str:
 
 
 def body_gem(m: Package, br: list[str], req: list[str]) -> str:
-    """Generate body for gem ecosystem."""
+    """Generate body for gem ecosystem (openSUSE-native, gem2rpm-style)."""
     br = ["ruby(release)", "rubygems-devel", "ruby"] + br
     out: list[str] = []
+    mod_name = m.name
+    out += [
+        f"%define mod_name {mod_name}",
+        "%define mod_full_name %{mod_name}-%{version}",
+    ]
     add_br_req(out, br, req)
 
     out += ["", prep(m), "", "%build"]
@@ -541,16 +573,13 @@ def body_gem(m: Package, br: list[str], req: list[str]) -> str:
         "# Create missing files referenced by gemspec",
         "for f in man/*.1 zsh/_*; do [ -f \"$f\" ] || touch \"$f\" 2>/dev/null || :; done",
         "gem build *.gemspec",
-        f"%global gem_name {m.name}",
         "",
         "%install",
-        "%gem_install",
+        "%gem_install --no-rdoc --no-ri --symlink-binaries -f",
         "",
         "%files",
-        "%dir %{gem_dir}",
-        "%{gem_dir}/**",
-        "%exclude %{gem_cache}",
-    ]
+        "%gem_packages",
+    ] + m.extra_files
 
     return "\n".join(out) + "\n"
 

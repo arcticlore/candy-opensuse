@@ -1,0 +1,69 @@
+name: pilot build (opensuse beta)
+on:
+  workflow_dispatch:
+    inputs:
+      pkgs:
+        description: "Пилотные пакеты через запятую (например tealdeer,broot,dua)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    container: fedora:44
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install toolchain
+        run: |
+          dnf install -y jq git rpm-build rpmdevtools python3 cargo rust \
+            golang nodejs24 nodejs24-npm-bin copr-cli > /dev/null 2>&1 \
+            || dnf install -y jq git rpm-build rpmdevtools python3 cargo rust copr-cli
+
+      - name: Configure COPR
+        run: |
+          mkdir -p ~/.config
+          echo "${{ secrets.COPR_CONFIG }}" > ~/.config/copr
+          chmod 600 ~/.config/copr
+
+      - name: Build SRPMs and submit (pilot project)
+        id: pilot
+        env:
+          COPR_PROJECT: arcticlore/candy-opensuse-pilot
+          PKGS: ${{ inputs.pkgs }}
+        run: |
+          for name in $(echo "$PKGS" | tr ',' ' '); do
+            name=$(echo "$name" | xargs)
+            [ -z "$name" ] && continue
+            echo "== $name =="
+            if ! jq -e --arg n "$name" '.packages[] | select(.name==$n) | .eco' pkgs.json > /dev/null 2>&1; then
+              echo "  [SKIP] $name: не найден в pkgs.json"
+              continue
+            fi
+            if ! bin/make-srpm.sh "$name" > "logs/srpm-$name.log" 2>&1; then
+              echo "  [FAIL] $name: make-srpm rc=$? — хвост лога:"
+              tail -12 "logs/srpm-$name.log" | sed 's/^/    /'
+              continue
+            fi
+            srpm=$(ls SRPMS/${name}-*.src.rpm 2>/dev/null | head -1)
+            [ -z "$srpm" ] && { echo "  [FAIL] $name: SRPM не найден"; continue; }
+            echo "  [SUBMIT] $srpm -> $COPR_PROJECT"
+            if copr-cli build --nowait "$COPR_PROJECT" "$srpm" > "logs/copr-$name.log" 2>&1; then
+              echo "  [OK] $name (build #$(grep -oE 'id [0-9]+' "logs/copr-$name.log" | head -1))"
+            else
+              echo "  [FAIL] $name: copr-cli rc=$? — хвост лога:"
+              tail -12 "logs/copr-$name.log" | sed 's/^/    /'
+            fi
+          done
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pilot-logs-${{ github.run_number }}
+          path: logs/
+          retention-days: 14

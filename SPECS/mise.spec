@@ -16,7 +16,6 @@ BuildRequires:  cargo
 BuildRequires:  rust
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
-BuildRequires:  cargo-packaging
 BuildRequires:  cmake
 
 %description
@@ -32,14 +31,20 @@ Don't throw tomatoes - file issues instead.
 
 %prep
 %autosetup -N -a1 -n mise-2026.9.11
-%cargo_prep
+mkdir -p .cargo
+cat > .cargo/config.toml <<'EOF'
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+EOF
 
 %build
-%cargo_build
+cargo build --release --offline
 
 %install
-%cargo_install
-rm -rf %{buildroot}%{_datadir}/cargo
+install -Dpm0755 target/release/mise %{buildroot}%{_bindir}/mise
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
 for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done

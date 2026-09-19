@@ -16,7 +16,6 @@ BuildRequires:  cargo
 BuildRequires:  rust
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
-BuildRequires:  cargo-packaging
 
 %description
 Чистка build-артефактов проектов (node_modules/target)
@@ -31,16 +30,22 @@ Don't throw tomatoes - file issues instead.
 
 %prep
 %autosetup -N -a1 -n kondo-0.9
-%cargo_prep
+mkdir -p .cargo
+cat > .cargo/config.toml <<'EOF'
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+EOF
 
 %build
 cd kondo
-%cargo_build
+cargo build --release --offline
 
 %install
 cd kondo
-%cargo_install
-rm -rf %{buildroot}%{_datadir}/cargo
+install -Dpm0755 target/release/kondo %{buildroot}%{_bindir}/kondo
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
 for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done

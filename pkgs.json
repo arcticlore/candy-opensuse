@@ -22,7 +22,8 @@
    ],
    "prio": 1,
    "use": "eval \"$(starship init bash)\" — добавь в ~/.bashrc",
-   "alt": "curl -sS https://starship.rs/install.sh | sh"
+   "alt": "curl -sS https://starship.rs/install.sh | sh",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "lazygit",
@@ -38,7 +39,8 @@
    "gpkg": ".",
    "prio": 1,
    "use": "запусти lazygit внутри git-репозитория",
-   "alt": "бинарник со страницы Releases или COPR: dnf copr enable atim/lazygit"
+   "alt": "бинарник со страницы Releases или COPR: dnf copr enable atim/lazygit",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "lazydocker",
@@ -53,7 +55,8 @@
    ],
    "gpkg": ".",
    "prio": 1,
-   "use": "запусти lazydocker при работающем docker"
+   "use": "запусти lazydocker при работающем docker",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "bottom",
@@ -68,7 +71,8 @@
    ],
    "prio": 1,
    "use": "btm — монитор процессов с графиками",
-   "alt": "dnf copr enable atim/bottom или cargo install bottom"
+   "alt": "dnf copr enable atim/bottom или cargo install bottom",
+   "topdir": "bottom-0.14.9"
   },
   {
    "name": "yazi",
@@ -93,7 +97,8 @@
    ],
    "alt": "cargo install yazi-cli или бинарники Releases",
    "cdir": "yazi-build",
-   "version": "26.8.15"
+   "version": "26.8.15",
+   "topdir": "yazi-26.8.15"
   },
   {
    "name": "lf",
@@ -108,7 +113,8 @@
    ],
    "gpkg": ".",
    "prio": 1,
-   "use": "lf — файловый менеджер"
+   "use": "lf — файловый менеджер",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "sd",
@@ -124,7 +130,8 @@
    "prio": 1,
    "use": "sd 'старый текст' 'новый текст' file.txt",
    "alt": "cargo install sd",
-   "cdir": "sd-cli"
+   "cdir": "sd-cli",
+   "topdir": "sd-1.1.0"
   },
   {
    "name": "xh",
@@ -142,7 +149,8 @@
     "openssl-devel"
    ],
    "use": "xh GET https://api.github.com",
-   "alt": "cargo install xh или бинарники Releases"
+   "alt": "cargo install xh или бинарники Releases",
+   "topdir": "xh-0.26.2"
   },
   {
    "name": "curlie",
@@ -157,7 +165,8 @@
    ],
    "gpkg": ".",
    "prio": 1,
-   "use": "curlie https://api.github.com"
+   "use": "curlie https://api.github.com",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "viddy",
@@ -172,7 +181,8 @@
    ],
    "prio": 1,
    "use": "viddy 'df -h' — watch с подсветкой diff",
-   "alt": "go install github.com/sachaos/viddy@latest"
+   "alt": "go install github.com/sachaos/viddy@latest",
+   "topdir": "viddy-1.3.1"
   },
   {
    "name": "gping",
@@ -192,7 +202,8 @@
    "br": [
     "cargo-rpm-macros"
    ],
-   "alt": "cargo install gping"
+   "alt": "cargo install gping",
+   "topdir": "gping-gping-v1.21.0"
   },
   {
    "name": "doggo",
@@ -208,7 +219,8 @@
    "gpkg": "./cmd/doggo",
    "prio": 1,
    "use": "doggo example.com MX",
-   "alt": "go install github.com/mr-karan/doggo/cmd/doggo@latest"
+   "alt": "go install github.com/mr-karan/doggo/cmd/doggo@latest",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "fx",
@@ -223,7 +235,8 @@
    ],
    "gpkg": ".",
    "prio": 1,
-   "use": "cat data.json | fx — интерактивный JSON"
+   "use": "cat data.json | fx — интерактивный JSON",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "zellij",
@@ -243,7 +256,8 @@
     "openssl-devel",
     "perl"
    ],
-   "alt": "curl -sSfL https://get.zellij.dev | sh (или cargo install zellij)"
+   "alt": "curl -sSfL https://get.zellij.dev | sh (или cargo install zellij)",
+   "topdir": "zellij-0.45.1"
   },
   {
    "name": "macchina",
@@ -258,7 +272,8 @@
    ],
    "prio": 2,
    "use": "macchina — инфа о системе",
-   "alt": "cargo install macchina-cli (или .rpm со страницы релизов)"
+   "alt": "cargo install macchina-cli (или .rpm со страницы релизов)",
+   "topdir": "macchina-6.4.0"
   },
   {
    "name": "neofetch",
@@ -277,7 +292,8 @@
    "interp": "bash",
    "prio": 2,
    "use": "neofetch",
-   "alt": "git clone https://github.com/dylanaraps/neofetch && sudo make install"
+   "alt": "git clone https://github.com/dylanaraps/neofetch && sudo make install",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "ghfetch",
@@ -296,7 +312,8 @@
    "verify": true,
    "prio": 2,
    "use": "ghfetch <логин-github>",
-   "fallback": "commit"
+   "fallback": "commit",
+   "topdir": "ghfetch-4b44a4f442101b2c91849effef37e1b04c34fd9f"
   },
   {
    "name": "gitfetch",
@@ -311,7 +328,8 @@
    ],
    "verify": true,
    "prio": 2,
-   "use": "gitfetch <логин-github>"
+   "use": "gitfetch <логин-github>",
+   "topdir": "gitfetch-0.1.1"
   },
   {
    "name": "bunnyfetch",
@@ -327,7 +345,8 @@
    "gpkg": ".",
    "verify": true,
    "prio": 2,
-   "use": "bunnyfetch"
+   "use": "bunnyfetch",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "catnap",
@@ -380,7 +399,8 @@
    "prio": 2,
    "use": "rxfetch",
    "alt": "git clone https://github.com/Mangeshrex/rxfetch && sudo ./install.sh",
-   "fallback": "commit"
+   "fallback": "commit",
+   "topdir": "rxfetch-5eb3582d90a688c8330d1a72c6ac4c1b1ccd3872"
   },
   {
    "name": "nerdfetch",
@@ -399,7 +419,8 @@
    "interp": "sh",
    "verify": true,
    "prio": 2,
-   "use": "nerdfetch (нужен Nerd Font)"
+   "use": "nerdfetch (нужен Nerd Font)",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "disfetch",
@@ -418,7 +439,8 @@
    "interp": "sh",
    "verify": true,
    "prio": 2,
-   "use": "disfetch"
+   "use": "disfetch",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "ufetch",
@@ -438,7 +460,8 @@
    "verify": true,
    "prio": 2,
    "use": "ufetch",
-   "fallback": "commit"
+   "fallback": "commit",
+   "topdir": "ufetch-19a71dc8"
   },
   {
    "name": "albafetch",
@@ -455,7 +478,8 @@
     "pkgconf-pkg-config",
     "sqlite-devel"
    ],
-   "use": "albafetch"
+   "use": "albafetch",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "CrabFetch",
@@ -470,7 +494,8 @@
    ],
    "verify": true,
    "prio": 2,
-   "use": "crabfetch"
+   "use": "crabfetch",
+   "topdir": "CrabFetch-0.5.4"
   },
   {
    "name": "animfetch",
@@ -488,7 +513,8 @@
    "use": "animfetch — анимированный fetch",
    "br": [
     "cargo-rpm-macros"
-   ]
+   ],
+   "topdir": "animfetch-0.1.6"
   },
   {
    "name": "archey4",
@@ -511,7 +537,8 @@
    "extra_files": [
     "%{_bindir}/archey",
     "%{_docdir}/archey4"
-   ]
+   ],
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "pokemon-icat",
@@ -527,7 +554,8 @@
    "verify": true,
    "prio": 2,
    "use": "pokemon-icat pikachu — спрайт покемона",
-   "fallback": "commit"
+   "fallback": "commit",
+   "topdir": "pokemon-icat-54d4bc500f8668c0759aad2588940cdc8dd1d6f5"
   },
   {
    "name": "pridefetch",
@@ -543,7 +571,8 @@
    "verify": true,
    "prio": 2,
    "use": "pridefetch",
-   "fallback": "commit"
+   "fallback": "commit",
+   "topdir": "pridefetch-dc24d03d5ea320010be7f69e77162156521c4460"
   },
   {
    "name": "winfetch",
@@ -583,7 +612,8 @@
    ],
    "interp": "bash",
    "prio": 3,
-   "use": "pipes.sh — трубы-скринсейвер, Esc для выхода"
+   "use": "pipes.sh — трубы-скринсейвер, Esc для выхода",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "pipesX",
@@ -602,7 +632,8 @@
    "interp": "bash",
    "verify": true,
    "prio": 3,
-   "use": "pipesX.sh"
+   "use": "pipesX.sh",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "lavat",
@@ -619,7 +650,8 @@
    "verify": true,
    "prio": 3,
    "use": "lavat — лава-лампа; клавиши +/- меняют скорость",
-   "noman": true
+   "noman": true,
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "tty-clock",
@@ -636,7 +668,8 @@
    "verify": true,
    "prio": 3,
    "use": "tty-clock -c -C 4 — часы по центру, цвет 4",
-   "alt": "git clone + make install"
+   "alt": "git clone + make install",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "ctree",
@@ -652,7 +685,8 @@
    "gpkg": ".",
    "verify": true,
    "prio": 3,
-   "use": "ctree — новогодняя ёлка"
+   "use": "ctree — новогодняя ёлка",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "terminal-parrot",
@@ -668,7 +702,8 @@
    "gpkg": ".",
    "prio": 3,
    "fallback": "commit",
-   "use": "terminal-parrot — танцующий попугай"
+   "use": "terminal-parrot — танцующий попугай",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "snowmachine",
@@ -681,7 +716,8 @@
    "use": "snowmachine — снегопад",
    "extra_files": [
     "%{_bindir}/snowmachine"
-   ]
+   ],
+   "topdir": "snowmachine-2.0.2"
   },
   {
    "name": "PyBonsai",
@@ -695,7 +731,8 @@
    "use": "pybonsai — растит бонсай",
    "pbr_exclude": [
     "streamlink"
-   ]
+   ],
+   "topdir": "pybonsai-3.0.0"
   },
   {
    "name": "arttime",
@@ -718,7 +755,8 @@
    "files": [
     "bin/arttime",
     "bin/artprint"
-   ]
+   ],
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "duckpond",
@@ -738,7 +776,8 @@
    "verify": true,
    "prio": 3,
    "fallback": "commit",
-   "use": "duckpond.sh — утки на пруду"
+   "use": "duckpond.sh — утки на пруду",
+   "topdir": "duckpond.sh-00c96ca8a247be79fb961773770799fee5e54758"
   },
   {
    "name": "lifecycler",
@@ -771,7 +810,8 @@
    "verify": true,
    "prio": 3,
    "use": "maze.py — генерация лабиринта",
-   "fallback": "commit"
+   "fallback": "commit",
+   "topdir": "maze.py-eb99e6521ab5135dfaf3b2d3905ecdd515edb599"
   },
   {
    "name": "snakes",
@@ -791,7 +831,8 @@
    "verify": true,
    "prio": 3,
    "use": "snakes.pl — змейки",
-   "fallback": "commit"
+   "fallback": "commit",
+   "topdir": "snakes.pl-57ee34b3283144c236a900c07cbfcca74858f12a"
   },
   {
    "name": "weave",
@@ -810,7 +851,8 @@
    "interp": "bash",
    "verify": true,
    "prio": 3,
-   "use": "weave.sh — плетение узоров"
+   "use": "weave.sh — плетение узоров",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "gh-screensaver",
@@ -826,7 +868,8 @@
    "gpkg": ".",
    "verify": true,
    "prio": 3,
-   "use": "gh screensaver -e fireworks (нужен GitHub CLI)"
+   "use": "gh screensaver -e fireworks (нужен GitHub CLI)",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "shuffle",
@@ -863,7 +906,8 @@
    ],
    "verify": true,
    "prio": 3,
-   "use": "cbeams — цветные лучи"
+   "use": "cbeams — цветные лучи",
+   "topdir": "cbeams-1.0.1"
   },
   {
    "name": "ascsaver",
@@ -884,7 +928,8 @@
    "interp": "sh",
    "verify": true,
    "prio": 3,
-   "fallback": "commit"
+   "fallback": "commit",
+   "topdir": "ascsaver-cba337b5"
   },
   {
    "name": "weatherspect",
@@ -926,7 +971,8 @@
    "gpkg": ".",
    "bins": [
     "zenta"
-   ]
+   ],
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "tspace",
@@ -946,7 +992,8 @@
    "verify": true,
    "prio": 3,
    "fallback": "commit",
-   "use": "tspace.sh — кораблик"
+   "use": "tspace.sh — кораблик",
+   "topdir": "tspace-19d4e8966ec42800b120311c8763745841a9ba07"
   },
   {
    "name": "tfire",
@@ -972,7 +1019,8 @@
    ],
    "script_src": {
     "tfire": "tfire.py"
-   }
+   },
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "termdvd",
@@ -1026,7 +1074,8 @@
    "interp": "bash",
    "verify": true,
    "prio": 3,
-   "use": "source /usr/share/cli-fx/lib/core.sh — эффекты в своих скриптах"
+   "use": "source /usr/share/cli-fx/lib/core.sh — эффекты в своих скриптах",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "hollywood",
@@ -1055,7 +1104,8 @@
    "interp": "bash",
    "verify": true,
    "prio": 9,
-   "use": "hollywood — консоль хакера из кино (нужен byobu)"
+   "use": "hollywood — консоль хакера из кино (нужен byobu)",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "bb",
@@ -1088,7 +1138,8 @@
    "verify": true,
    "prio": 4,
    "use": "ponysay 'Привет!' или ponysay -l список пони",
-   "alt": "git clone && ./install.sh"
+   "alt": "git clone && ./install.sh",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "yosay",
@@ -1101,7 +1152,8 @@
    "npmbin": "yosay",
    "prio": 4,
    "use": "yosay 'Привет!'",
-   "alt": "npm install -g yosay"
+   "alt": "npm install -g yosay",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "parrotsay",
@@ -1114,7 +1166,8 @@
    "verify": true,
    "prio": 4,
    "use": "parrotsay 'Привет!'",
-   "alt": "npm install -g parrotsay"
+   "alt": "npm install -g parrotsay",
+   "topdir": "package"
   },
   {
    "name": "ricksay",
@@ -1146,7 +1199,8 @@
    },
    "br": [
     "gcc"
-   ]
+   ],
+   "topdir": "ricksay-e75f53dcdc91baa8f2651328734e2ee7e6654663"
   },
   {
    "name": "jp2a",
@@ -1168,7 +1222,8 @@
    "autoreconf": true,
    "prio": 4,
    "use": "jp2a photo.jpg --width=80",
-   "alt": "./autogen.sh && make && make install из исходников"
+   "alt": "./autogen.sh && make && make install из исходников",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "artem",
@@ -1183,7 +1238,8 @@
    ],
    "prio": 4,
    "use": "artem photo.jpg — картинка в ASCII",
-   "alt": "cargo install artem"
+   "alt": "cargo install artem",
+   "topdir": "artem-3.0.0"
   },
   {
    "name": "viu",
@@ -1198,7 +1254,8 @@
    ],
    "prio": 4,
    "use": "viu photo.jpg — картинка прямо в терминале",
-   "alt": "cargo install viu"
+   "alt": "cargo install viu",
+   "topdir": "viu-1.6.1"
   },
   {
    "name": "durdraw",
@@ -1216,7 +1273,8 @@
     "%{_bindir}/durdraw",
     "%{_bindir}/durfetch",
     "%{_bindir}/durview"
-   ]
+   ],
+   "topdir": "durdraw-0.30.1"
   },
   {
    "name": "diagon",
@@ -1248,7 +1306,8 @@
    "verify": true,
    "prio": 4,
    "use": "tulizu --help — арт для /etc/issue",
-   "noman": true
+   "noman": true,
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "cadubi",
@@ -1267,7 +1326,8 @@
    "interp": "perl",
    "verify": true,
    "prio": 4,
-   "use": "cadubi — рисование ASCII"
+   "use": "cadubi — рисование ASCII",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "colorls",
@@ -1286,7 +1346,8 @@
     "git-core"
    ],
    "alt": "gem install colorls",
-   "prep_extra": "mkdir -p zsh && touch man/colorls.1 zsh/_colorls"
+   "prep_extra": "mkdir -p zsh && touch man/colorls.1 zsh/_colorls",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "pscircle",
@@ -1303,7 +1364,8 @@
    ],
    "prio": 4,
    "verify": true,
-   "use": "pscircle --output=pscircle.png — процессы кругом"
+   "use": "pscircle --output=pscircle.png — процессы кругом",
+   "topdir": "%{name}-v%{version}"
   },
   {
    "name": "powerlevel10k",
@@ -1324,7 +1386,8 @@
    "interp": "zsh",
    "prio": 5,
    "use": "echo 'source /usr/share/powerlevel10k/powerlevel10k.zsh-theme' >> ~/.zshrc",
-   "alt": "git clone --depth=1 https://github.com/romkatv/powerlevel10k.git ~/.powerlevel10k && echo 'source ~/.powerlevel10k/powerlevel10k.zsh-theme' >> ~/.zshrc"
+   "alt": "git clone --depth=1 https://github.com/romkatv/powerlevel10k.git ~/.powerlevel10k && echo 'source ~/.powerlevel10k/powerlevel10k.zsh-theme' >> ~/.zshrc",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "oh-my-zsh",
@@ -1346,7 +1409,8 @@
    "prio": 5,
    "fallback": "commit",
    "use": "экспортируй ZSH=/usr/share/oh-my-zsh и source oh-my-zsh.sh в ~/.zshrc",
-   "alt": "sh -c \"$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)\" (ставит в ~/.oh-my-zsh)"
+   "alt": "sh -c \"$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)\" (ставит в ~/.oh-my-zsh)",
+   "topdir": "ohmyzsh-157eb033f2a527021aac18c1f5850bbe3e3d223c"
   },
   {
    "name": "pure",
@@ -1367,7 +1431,8 @@
    "verify": true,
    "prio": 5,
    "use": "npm-глобал: добавь 'prompt pure' через antigen/zplug",
-   "alt": "npm install -g pure-prompt или git clone + symlink в fpath"
+   "alt": "npm install -g pure-prompt или git clone + symlink в fpath",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "pywal",
@@ -1382,7 +1447,8 @@
    "extra_files": [
     "%{_bindir}/wal",
     "%{_prefix}/man/man1/wal.1*"
-   ]
+   ],
+   "topdir": "pywal-3.8.15"
   },
   {
    "name": "wallust",
@@ -1399,7 +1465,8 @@
    "prio": 5,
    "verify": true,
    "use": "wallust run обои.jpg",
-   "alt": "cargo install wallust"
+   "alt": "cargo install wallust",
+   "topdir": "wallust"
   },
   {
    "name": "flavours",
@@ -1415,7 +1482,8 @@
    "verify": true,
    "prio": 5,
    "use": "flavours apply gruvbox-dark",
-   "alt": "cargo install flavours"
+   "alt": "cargo install flavours",
+   "topdir": "flavours-0.7.1"
   },
   {
    "name": "tint",
@@ -1434,7 +1502,8 @@
    "interp": "bash",
    "verify": true,
    "prio": 5,
-   "use": "tint dracula — сменить тему терминала; tint -l список"
+   "use": "tint dracula — сменить тему терминала; tint -l список",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "cli-visualizer",
@@ -1474,7 +1543,8 @@
    "alt": "cargo install linuxwave",
    "enabled": true,
    "note": "",
-   "exp": false
+   "exp": false,
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "chucknorris",
@@ -1536,7 +1606,8 @@
    "interp": "bash",
    "verify": true,
    "prio": 6,
-   "fallback": "commit"
+   "fallback": "commit",
+   "topdir": "rickrollrc-85d6893495ae05f9154fe1528026916ca5354ca4"
   },
   {
    "name": "WezTerm",
@@ -1573,7 +1644,8 @@
     "glslang",
     "pkgconf-pkg-config"
    ],
-   "cdir": "frontends/rioterm"
+   "cdir": "frontends/rioterm",
+   "topdir": "rio-0.5.28"
   },
   {
    "name": "Ghostty",
@@ -1614,7 +1686,8 @@
    ],
    "prio": 3,
    "alt": "pip install terminaltexteffects",
-   "use": "tte \"твой текст\" — эффекты печати; tte --list-effects"
+   "use": "tte \"твой текст\" — эффекты печати; tte --list-effects",
+   "topdir": "terminaltexteffects-0.15.0"
   },
   {
    "name": "ascii-image-converter",
@@ -1630,7 +1703,8 @@
    "gpkg": ".",
    "prio": 3,
    "alt": "бинарники: github.com/TheZoraiz/ascii-image-converter/releases",
-   "use": "ascii-image-converter photo.jpg --color"
+   "use": "ascii-image-converter photo.jpg --color",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "gum",
@@ -1646,7 +1720,8 @@
    "gpkg": ".",
    "prio": 1,
    "alt": "офиц. репо Charm: sudo dnf copr enable charmbracelet/charm? нет — см. github.com/charmbracelet/gum#installation",
-   "use": "gum choose 'вариант 1' 'вариант 2'; gum spin -- sleep 2"
+   "use": "gum choose 'вариант 1' 'вариант 2'; gum spin -- sleep 2",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "glow",
@@ -1662,7 +1737,8 @@
    "gpkg": ".",
    "prio": 1,
    "alt": "github.com/charmbracelet/glow#installation (бинарники/репо Charm)",
-   "use": "glow README.md — читай markdown в терминале"
+   "use": "glow README.md — читай markdown в терминале",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "unimatrix",
@@ -1684,7 +1760,8 @@
    "verify": true,
    "prio": 3,
    "alt": "git clone https://github.com/will8211/unimatrix && sudo ./install.py",
-   "use": "unimatrix -s 96 — unicode-матрица"
+   "use": "unimatrix -s 96 — unicode-матрица",
+   "topdir": "unimatrix-dff519f972103f91384f360f270614184de8aa92"
   },
   {
    "name": "ttyper",
@@ -1699,7 +1776,8 @@
    ],
    "prio": 3,
    "alt": "cargo install ttyper --locked",
-   "use": "ttyper — тест слепой печати (ru: --language ru1000)"
+   "use": "ttyper — тест слепой печати (ru: --language ru1000)",
+   "topdir": "ttyper-1.6.0"
   },
   {
    "name": "csview",
@@ -1712,7 +1790,8 @@
    "bins": [
     "csview"
    ],
-   "prio": 1
+   "prio": 1,
+   "topdir": "csview-1.3.4"
   },
   {
    "name": "lolcrab",
@@ -1725,7 +1804,8 @@
    "bins": [
     "lolcrab"
    ],
-   "prio": 3
+   "prio": 3,
+   "topdir": "lolcrab-0.4.1"
   },
   {
    "name": "joshuto",
@@ -1741,7 +1821,8 @@
    "br": [
     "libxcb-devel"
    ],
-   "prio": 3
+   "prio": 3,
+   "topdir": "joshuto-0.9.9"
   },
   {
    "name": "ttysvr",
@@ -1756,7 +1837,8 @@
    ],
    "fallback": "commit",
    "verify": true,
-   "prio": 3
+   "prio": 3,
+   "topdir": "ttysvr-0.3.4"
   },
   {
    "name": "termusic",
@@ -1772,7 +1854,8 @@
    "exp": true,
    "verify": true,
    "prio": 7,
-   "note": "воркспейс; тяжёлые зависимости mpv/gstreamer"
+   "note": "воркспейс; тяжёлые зависимости mpv/gstreamer",
+   "topdir": "termusic-0.13.2"
   },
   {
    "name": "pipes.rs",
@@ -1788,7 +1871,8 @@
    "gpkg": ".",
    "verify": true,
    "prio": 3,
-   "cdir": "crates/pipes-rs"
+   "cdir": "crates/pipes-rs",
+   "topdir": "pipes-rs-1.6.4"
   },
   {
    "name": "choose",
@@ -1802,7 +1886,8 @@
     "choose"
    ],
    "exp": true,
-   "prio": 5
+   "prio": 5,
+   "topdir": "choose-1.3.7"
   },
   {
    "name": "broot",
@@ -1817,7 +1902,8 @@
    ],
    "use": "broot — интерактивное дерево файлов",
    "prio": 1,
-   "alt": "cargo install broot"
+   "alt": "cargo install broot",
+   "topdir": "broot-1.60.1"
   },
   {
    "name": "just",
@@ -1831,7 +1917,8 @@
     "just"
    ],
    "use": "just <рецепт>; just --list",
-   "prio": 1
+   "prio": 1,
+   "topdir": "just-1.58.0"
   },
   {
    "name": "hyperfine",
@@ -1845,7 +1932,8 @@
     "hyperfine"
    ],
    "use": "hyperfine 'sleep 0.3'",
-   "prio": 1
+   "prio": 1,
+   "topdir": "hyperfine-1.20.0"
   },
   {
    "name": "tokei",
@@ -1859,7 +1947,8 @@
     "tokei"
    ],
    "use": "tokei ./src",
-   "prio": 1
+   "prio": 1,
+   "topdir": "tokei-15.0.0"
   },
   {
    "name": "tealdeer",
@@ -1878,7 +1967,8 @@
    "br": [
     "gzip"
    ],
-   "prio": 1
+   "prio": 1,
+   "topdir": "tealdeer-1.9.0"
   },
   {
    "name": "zenith",
@@ -1893,7 +1983,8 @@
    ],
    "exp": true,
    "use": "zenith",
-   "prio": 7
+   "prio": 7,
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "ctop",
@@ -1908,7 +1999,8 @@
    ],
    "gpkg": ".",
    "use": "ctop — живой монитор контейнеров",
-   "prio": 2
+   "prio": 2,
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "wtfutil",
@@ -1924,7 +2016,8 @@
    "gpkg": ".",
    "fallback": "commit",
    "use": "wtfutil — дашборд модулей",
-   "prio": 2
+   "prio": 2,
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "slides",
@@ -1939,7 +2032,8 @@
    ],
    "gpkg": ".",
    "use": "slides deck.md — презентация",
-   "prio": 2
+   "prio": 2,
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "presenterm",
@@ -1953,7 +2047,8 @@
     "presenterm"
    ],
    "use": "presenterm slides.md",
-   "prio": 2
+   "prio": 2,
+   "topdir": "presenterm-0.16.1"
   },
   {
    "name": "tabiew",
@@ -1970,7 +2065,8 @@
    "fallback": "commit",
    "verify": true,
    "use": "tabiew data.csv",
-   "prio": 3
+   "prio": 3,
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "typioca",
@@ -1985,7 +2081,8 @@
    ],
    "use": "typioca — печать на скорость",
    "prio": 3,
-   "gpkg": "."
+   "gpkg": ".",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "bacon",
@@ -1999,7 +2096,8 @@
     "bacon"
    ],
    "use": "bacon — фоновая проверка проекта",
-   "prio": 2
+   "prio": 2,
+   "topdir": "bacon-3.25.0"
   },
   {
    "name": "kondo",
@@ -2014,7 +2112,8 @@
    ],
    "use": "kondo ~/dev — найти мусор",
    "prio": 2,
-   "cdir": "kondo"
+   "cdir": "kondo",
+   "topdir": "kondo-0.9"
   },
   {
    "name": "grex",
@@ -2028,7 +2127,8 @@
     "grex"
    ],
    "use": "grex a1 b2 → '^a[12]b[12]$'",
-   "prio": 2
+   "prio": 2,
+   "topdir": "grex-1.4.6"
   },
   {
    "name": "himalaya",
@@ -2044,7 +2144,8 @@
    "exp": true,
    "use": "himalaya list — письма в терминале",
    "prio": 6,
-   "note": "проверить BR openssl/rustls при сборке"
+   "note": "проверить BR openssl/rustls при сборке",
+   "topdir": "himalaya-2.1.0"
   },
   {
    "name": "dua",
@@ -2059,7 +2160,8 @@
    ],
    "gpkg": ".",
    "use": "dua i — интерактивный режим",
-   "prio": 2
+   "prio": 2,
+   "topdir": "dua-cli-2.45.0"
   },
   {
    "name": "pet",
@@ -2074,7 +2176,8 @@
    ],
    "gpkg": ".",
    "use": "pet new / pet exec <имя>",
-   "prio": 2
+   "prio": 2,
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "nb",
@@ -2095,7 +2198,8 @@
    "fallback": "commit",
    "verify": true,
    "use": "nb add текст заметки; nb ls",
-   "prio": 2
+   "prio": 2,
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "zk",
@@ -2112,7 +2216,8 @@
    "verify": true,
    "use": "zk new; zk list",
    "prio": 2,
-   "gpkg": "."
+   "gpkg": ".",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "cyme",
@@ -2133,7 +2238,8 @@
    "prep_extra": "mkdir -p /tmp/dummybin\nprintf '#!/bin/sh\\nexit 1\\n' > /tmp/dummybin/curl\nchmod +x /tmp/dummybin/curl",
    "build_env": [
     "PATH=\"/tmp/dummybin:$PATH\""
-   ]
+   ],
+   "topdir": "cyme-3.0.2"
   },
   {
    "name": "systeroid",
@@ -2149,7 +2255,8 @@
    "exp": true,
    "use": "systeroid --tui",
    "prio": 7,
-   "cdir": "systeroid"
+   "cdir": "systeroid",
+   "topdir": "systeroid-0.4.6"
   },
   {
    "name": "fend",
@@ -2164,7 +2271,8 @@
    ],
    "use": "echo '1+2' | fend",
    "verify": true,
-   "prio": 3
+   "prio": 3,
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "taskwarrior-tui",
@@ -2190,7 +2298,8 @@
     "genact"
    ],
    "use": "genact — Ctrl+C остановить",
-   "prio": 3
+   "prio": 3,
+   "topdir": "genact-1.5.1"
   },
   {
    "name": "mise",
@@ -2208,7 +2317,8 @@
    "alt": "curl https://mise.run | sh",
    "br": [
     "cmake"
-   ]
+   ],
+   "topdir": "mise-2026.9.11"
   },
   {
    "name": "bandwhich",
@@ -2222,7 +2332,8 @@
     "bandwhich"
    ],
    "use": "sudo bandwhich -i wlan0",
-   "prio": 1
+   "prio": 1,
+   "topdir": "bandwhich-0.23.1"
   },
   {
    "name": "oha",
@@ -2236,7 +2347,8 @@
     "oha"
    ],
    "use": "oha -n 200 https://example.com",
-   "prio": 1
+   "prio": 1,
+   "topdir": "oha-1.16.0"
   },
   {
    "name": "scc",
@@ -2251,7 +2363,8 @@
    ],
    "gpkg": ".",
    "use": "scc ./project",
-   "prio": 1
+   "prio": 1,
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "trippy",
@@ -2267,7 +2380,8 @@
    "gpkg": ".",
    "use": "sudo trip example.com",
    "prio": 1,
-   "cdir": "crates/trippy"
+   "cdir": "crates/trippy",
+   "topdir": "trippy-0.13.0"
   },
   {
    "name": "watchexec",
@@ -2283,7 +2397,8 @@
    "cdir": "crates/cli",
    "note": "воркспейс; CLI в crates/cli",
    "use": "watchexec -- make test",
-   "prio": 1
+   "prio": 1,
+   "topdir": "watchexec-2.7.3"
   },
   {
    "name": "rmpc",
@@ -2298,7 +2413,8 @@
    ],
    "exp": true,
    "use": "rmpc — нужен запущенный mpd",
-   "prio": 7
+   "prio": 7,
+   "topdir": "rmpc-0.11.0"
   },
   {
    "name": "tetris",
@@ -2329,7 +2445,8 @@
    ],
    "gpkg": "./cmd",
    "use": "termshot --out shot.png -- ls -la",
-   "prio": 3
+   "prio": 3,
+   "topdir": "termshot-0.6.1"
   },
   {
    "name": "peaclock",
@@ -2353,7 +2470,8 @@
    "exp": true,
    "verify": true,
    "use": "peaclock",
-   "prio": 8
+   "prio": 8,
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "dysk",
@@ -2367,7 +2485,8 @@
     "dysk"
    ],
    "use": "dysk — все точки монтирования",
-   "prio": 2
+   "prio": 2,
+   "topdir": "dysk-3.7.0"
   },
   {
    "name": "video-to-ascii",
@@ -2385,7 +2504,8 @@
    "pbr_exclude": [
     "opencv-python",
     "ffmpeg-python"
-   ]
+   ],
+   "topdir": "video_to_ascii-1.3.1"
   },
   {
    "name": "pokete",
@@ -2422,7 +2542,8 @@
    "prio": 7,
    "br": [
     "perl"
-   ]
+   ],
+   "topdir": "gittype-0.10.2"
   },
   {
    "name": "onefetch",
@@ -2437,7 +2558,8 @@
    ],
    "prio": 2,
    "use": "onefetch — из папки репозитория",
-   "alt": "cargo install onefetch --locked"
+   "alt": "cargo install onefetch --locked",
+   "topdir": "onefetch-2.28.1"
   },
   {
    "name": "gitui",
@@ -2456,7 +2578,8 @@
    ],
    "prio": 2,
    "use": "gitui — в папке репозитория",
-   "alt": "cargo install gitui --locked"
+   "alt": "cargo install gitui --locked",
+   "topdir": "gitui-0.28.1"
   },
   {
    "name": "toipe",
@@ -2471,7 +2594,8 @@
    ],
    "prio": 3,
    "use": "toipe — запуск без аргументов",
-   "alt": "cargo install toipe --locked"
+   "alt": "cargo install toipe --locked",
+   "topdir": "toipe-0.5.0"
   },
   {
    "name": "tty-solitaire",
@@ -2492,7 +2616,8 @@
    "verify": true,
    "prio": 3,
    "use": "ttysolitaire — режим клавиатуры h,j,k,l",
-   "alt": "git clone + make install"
+   "alt": "git clone + make install",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "gtop",
@@ -2504,7 +2629,8 @@
    "license": "MIT",
    "prio": 3,
    "entry": "bin/gtop",
-   "use": "gtop — CPU/RAM/network в одном окне"
+   "use": "gtop — CPU/RAM/network в одном окне",
+   "topdir": "%{name}-%{version}"
   },
   {
    "name": "navi",
@@ -2519,7 +2645,8 @@
    ],
    "prio": 2,
    "use": "navi widget bash|zsh",
-   "alt": "cargo install navi --locked"
+   "alt": "cargo install navi --locked",
+   "topdir": "navi-2.24.0"
   },
   {
    "name": "delta",
@@ -2534,7 +2661,8 @@
    ],
    "prio": 1,
    "use": "delta -- pager для git; git config core.pager delta",
-   "alt": "cargo install git-delta --locked"
+   "alt": "cargo install git-delta --locked",
+   "topdir": "delta-0.19.2"
   }
  ]
 }

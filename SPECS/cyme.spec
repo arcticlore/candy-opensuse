@@ -16,8 +16,7 @@ BuildRequires:  cargo
 BuildRequires:  rust
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
-BuildRequires:  cargo-packaging
-BuildRequires:  libusb1-devel
+BuildRequires:  libusb-1_0-devel
 
 %description
 lsusb с красивым выводом и фильтрами
@@ -35,16 +34,21 @@ Don't throw tomatoes - file issues instead.
 mkdir -p /tmp/dummybin
 printf '#!/bin/sh\nexit 1\n' > /tmp/dummybin/curl
 chmod +x /tmp/dummybin/curl
-%cargo_prep
+mkdir -p .cargo
+cat > .cargo/config.toml <<'EOF'
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+EOF
 
 %build
 export PATH="/tmp/dummybin:$PATH"
-%cargo_build
+cargo build --release --offline
 
 %install
-export PATH="/tmp/dummybin:$PATH"
-%cargo_install
-rm -rf %{buildroot}%{_datadir}/cargo
+install -Dpm0755 target/release/cyme %{buildroot}%{_bindir}/cyme
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
 for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done

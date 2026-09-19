@@ -11,5 +11,6 @@ __pycache__/
 __pycache__/
 logs/runs/
 logs/builder/
+logs/builder-baseline/
 __pycache__/
 *.pyc

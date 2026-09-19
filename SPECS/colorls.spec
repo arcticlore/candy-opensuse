@@ -12,9 +12,10 @@ Source0:        %{name}-%{version}.tar.gz
 %global _unpackaged_files_terminate_build 0
 
 
+%define mod_name colorls
+%define mod_full_name %{mod_name}-%{version}
 BuildRequires:  ruby
 BuildRequires:  ruby-devel
-BuildRequires:  ruby
 BuildRequires:  git-core
 
 %description
@@ -37,17 +38,14 @@ git init -q . && git config user.email b@b.c && git config user.name b && git ad
 # Create missing files referenced by gemspec
 for f in man/*.1 zsh/_*; do [ -f "$f" ] || touch "$f" 2>/dev/null || :; done
 gem build *.gemspec
-%global gem_name colorls
 
 %install
-%gem_install
+%gem_install --no-rdoc --no-ri --symlink-binaries -f
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
 for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done
 %files
-%dir %{gem_dir}
-%{gem_dir}/**
-%exclude %{gem_cache}
+%gem_packages
 
 %changelog
 * Sat Sep 19 2026 candy-bot <candy@localhost> - 1.5.0-1

@@ -1,0 +1,48 @@
+name: sync specs (opensuse beta)
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Целевая ветка для коммита (по умолчанию master при dispatch)"
+        required: false
+        type: string
+        default: "master"
+  push:
+    branches: ["ci/**"]
+
+concurrency:
+  group: sync-specs-{{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  regen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || '' }}
+          fetch-depth: 1
+
+      - name: Regenerate specs
+        run: python3 bin/gen_specs.py --all
+
+      - name: Commit regenerated SPECS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_REF: ${{ inputs.ref || github.ref_name }}
+        run: |
+          git config user.name "candy-bot"
+          git config user.email "candy-bot@users.noreply.github.com"
+          if git diff --quiet -- SPECS/; then
+            echo "SPECS/ уже синхронизирован с генератором"
+            exit 0
+          fi
+          git add SPECS/
+          git diff --cached --stat | tail -5
+          git commit -qm "regen: synchronize SPECS/ with gen_specs.py [skip ci]"
+          echo "Pushing to branch: ${TARGET_REF}"
+          git push origin "HEAD:${TARGET_REF}"
