@@ -1,0 +1,269 @@
+#!/usr/bin/env python3
+"""COPR pilot build waiter — deterministic, testable state machine.
+
+Pure-stdlib module. No third-party deps. Designed to:
+  - submit via copr-cli in the workflow (this module ONLY observes);
+  - watch one build across all declared chroots from pkgs.json;
+  - succeed only on 4/4 ''succeeded'';
+  - never exit 0 on failed/canceled/skipped/none/missing/unknown/API error/timeout;
+  - support resume by existing build id (no duplicate submit).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from typing import Callable, Dict, List, Optional, Tuple
+
+TERMINAL = {"succeeded", "failed", "canceled", "skipped"}
+NONTERMINAL = {"pending", "starting", "importing", "running", "queued", "waiting"}
+FINISHED_OK = "succeeded"
+
+
+class ApiError(Exception):
+    """Transient or persistent failure talking to the COPR API."""
+
+
+def parse_build_ids(output_text: str) -> List[int]:
+    """Extract numeric build ids from copr-cli output.
+
+    Handles the common shapes copr-cli prints for --nowait submits:
+      'Created build(s) 123456.'
+      'Created build(s) 123456,789012.'
+      'Build was created (id 123456).'
+      'Created build 123456'
+    Returns [] if nothing parseable (caller must fail — silent 'success' is a bug).
+    """
+    import re
+
+    ids: List[int] = []
+    for m in re.finditer(
+        r"(?:Created build[s]?\(s\)|\bids?\b)[^0-9]*([0-9][0-9,\s]*)", output_text
+    ):
+        for num in re.findall(r"[0-9]+", m.group(1)):
+            if int(num) > 0:
+                ids.append(int(num))
+    return ids
+
+
+def fetch_chroot_states(
+    build_id: int,
+    api_base: str,
+    token: Optional[str],
+    timeout: int = 30,
+    max_retries: int = 3,
+    retry_backoff: float = 5.0,
+) -> Dict[str, str]:
+    """Return {chroot: state} for a build via COPR APIv3, with retries.
+
+    Raises ApiError if the API is unreachable after retries or returns
+    non-JSON / HTTP error.
+    """
+    import urllib.error
+    import urllib.request
+
+    url = f"{api_base}/api_3/build_chroot/list?build_id={build_id}&limit=100"
+    headers = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers)
+
+    last_err: Optional[Exception] = None
+    for attempt in range(max_retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                payload = resp.read().decode("utf-8")
+            try:
+                data = json.loads(payload)
+            except json.JSONDecodeError as exc:
+                raise ApiError(f"malformed JSON from COPR API: {exc}") from exc
+            items = data.get("items") if isinstance(data, dict) else None
+            if not isinstance(items, list):
+                raise ApiError(f"unexpected API payload shape: {type(data).__name__}")
+            states = {}
+            for item in items:
+                name = item.get("name")
+                state = item.get("state")
+                if isinstance(name, str) and isinstance(state, str):
+                    states[name] = state
+            return states
+        except urllib.error.HTTPError as exc:
+            if attempt < max_retries and exc.code in (502, 503, 504):
+                last_err = exc
+                time.sleep(retry_backoff * (2 ** attempt))
+                continue
+            raise ApiError(f"COPR API HTTP {exc.code}") from exc
+        except urllib.error.URLError as exc:
+            if attempt < max_retries:
+                last_err = exc
+                time.sleep(retry_backoff * (2 ** attempt))
+                continue
+            raise ApiError(f"COPR API unreachable: {exc.reason}") from exc
+    raise ApiError(f"COPR API failed after retries: {last_err}")
+
+
+def _statuses_from_rows(rows: List[Tuple[str, str, Optional[str]]]) -> Dict[str, str]:
+    return {name: state for name, state, _url in rows}
+
+
+def decide(
+    poll: Dict[str, str],
+    required_chroots: List[str],
+    elapsed: float,
+    deadline: float,
+    seen: Optional[Dict[str, str]] = None,
+) -> Tuple[bool, str]:
+    """One decision step of the state machine.
+
+    poll      — current {chroot: state} as reported this cycle.
+    required  — canonical chroots this build must cover (from pkgs.json).
+    elapsed   — seconds elapsed since submit.
+    deadline  — seconds of total wall time allowed.
+    seen      — running accumulator of last known state per chroot (mutated!).
+
+    Returns (concluded, verdict). concluded=True means the caller must stop
+    and treat 'verdict' as final. verdict is either 'ok' (4/4 succeeded) or a
+    human-readable failure reason.
+    """
+    if seen is None:
+        seen = {}
+    for name, state in poll.items():
+        seen[name] = state
+
+    if elapsed >= deadline:
+        _finish_accumulator(seen, required_chroots)
+        return True, "timeout: deadline reached before terminal 4/4"
+
+    unexpected = sorted(set(seen) - set(required_chroots))
+    if unexpected:
+        _finish_accumulator(seen, required_chroots)
+        return True, f"unexpected chroot(s) observed: {', '.join(unexpected)}"
+
+    for chroot in list(required_chroots):
+        state = seen.get(chroot)
+        if state is None:
+            continue
+        if state not in TERMINAL and state not in NONTERMINAL:
+            _finish_accumulator(seen, required_chroots)
+            return True, f"state '{state}' for {chroot} is neither terminal nor known-inflight"
+
+    if all(seen.get(c) in TERMINAL for c in required_chroots):
+        _finish_accumulator(seen, required_chroots)
+        bad = [c for c in required_chroots if seen[c] != FINISHED_OK]
+        if not bad:
+            return True, "ok"
+        return True, f"terminal non-succeeded chroots: {', '.join(bad)}"
+
+    return False, ""
+
+
+def _finish_accumulator(seen: Dict[str, str], required_chroots: List[str]) -> None:
+    for chroot in required_chroots:
+        if chroot not in seen:
+            seen[chroot] = "missing"
+
+
+def format_summary(
+    build_id: int,
+    seen: Dict[str, str],
+    required_chroots: List[str],
+    verdict: str,
+) -> List[str]:
+    lines = [
+        f"### COPR pilot build #{build_id}",
+        "",
+        "| chroot | state |",
+        "| ------ | ----- |",
+    ]
+    for chroot in required_chroots:
+        lines.append(f"| {chroot} | {seen.get(chroot, 'missing')} |")
+    lines.append("")
+    lines.append(f"**verdict:** {verdict}")
+    return lines
+
+
+def wait_for_build(
+    build_id: int,
+    required_chroots: List[str],
+    fetch: Callable[[int], Dict[str, str]],
+    deadline: float,
+    step: Callable[[int], float],
+    on_progress: Optional[Callable[[int, Dict[str, str]], None]] = None,
+) -> Tuple[int, Dict[str, str], str]:
+    """Poll until conclusion. Returns (exit_code, last_seen, verdict)."""
+    start = time.monotonic()
+    seen: Dict[str, str] = {}
+    step_no = 0
+    while True:
+        step_no += 1
+        state = fetch(build_id)
+        if on_progress:
+            on_progress(step_no, state)
+        elapsed = time.monotonic() - start
+        concluded, verdict = decide(state, required_chroots, elapsed, deadline, seen)
+        if concluded:
+            return (0 if verdict == "ok" else 1, seen, verdict)
+        time.sleep(step(step_no))
+
+
+def _read_required_chroots(path: str) -> List[str]:
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    chroots = data.get("project", {}).get("chroots")
+    if not isinstance(chroots, list) or not chroots:
+        raise ValueError(f"{path}: project.chroots missing or empty")
+    return list(chroots)
+
+
+def _write_step_summary(lines: List[str]) -> None:
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+    with open(summary_path, "a", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description="Wait for a COPR pilot build to finish.")
+    parser.add_argument("--build-id", type=int, required=True, help="COPR build id (from submit or resume)")
+    parser.add_argument("--pkgs-json", default="pkgs.json", help="path to pkgs.json (canonical chroots)")
+    parser.add_argument("--api-base", default=os.environ.get("COPR_API_BASE", "https://copr.fedorainfracloud.org"))
+    parser.add_argument("--token", default=os.environ.get("COPR_API_TOKEN", ""), help="COPR API bearer token (never printed)")
+    parser.add_argument("--timeout-min", type=float, default=120.0, help="total deadline in minutes")
+    parser.add_argument("--interval", type=float, default=30.0, help="base poll interval in seconds (bounded exponential backoff)")
+    args = parser.parse_args(argv)
+
+    required_chroots = _read_required_chroots(args.pkgs_json)
+    deadline = args.timeout_min * 60.0
+
+    def bounded_backoff(n: int) -> float:
+        return min(args.interval * (2 ** (n - 1)), 3600.0)
+
+    def fetch(build_id: int) -> Dict[str, str]:
+        return fetch_chroot_states(build_id, args.api_base, args.token or None)
+
+    def progress(step_no: int, state: Dict[str, str]) -> None:
+        print(f"  [poll {step_no}] {json.dumps(state, sort_keys=True)}", flush=True)
+
+    try:
+        rc, seen, verdict = wait_for_build(
+            args.build_id, required_chroots, fetch, deadline, bounded_backoff, progress
+        )
+    except ApiError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr, flush=True)
+        _write_step_summary(
+            format_summary(args.build_id, {}, required_chroots, f"API error: {exc}")
+        )
+        return 1
+
+    summary = format_summary(args.build_id, seen, required_chroots, verdict)
+    _write_step_summary(summary)
+    print("\n".join(summary), flush=True)
+    return rc
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
