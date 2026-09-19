@@ -3,10 +3,16 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Ветка/sha для checkout (по умолчанию master)"
+        description: "Целевая ветка для коммита (по умолчанию master при dispatch)"
         required: false
         type: string
-        default: ""
+        default: "master"
+  push:
+    branches: ["ci/**"]
+
+concurrency:
+  group: sync-specs-{{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -27,7 +33,7 @@ jobs:
       - name: Commit regenerated SPECS
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TARGET_REF: ${{ inputs.ref }}
+          TARGET_REF: ${{ inputs.ref || github.ref_name }}
         run: |
           git config user.name "candy-bot"
           git config user.email "candy-bot@users.noreply.github.com"
@@ -38,5 +44,5 @@ jobs:
           git add SPECS/
           git diff --cached --stat | tail -5
           git commit -qm "regen: synchronize SPECS/ with gen_specs.py [skip ci]"
-          branch="${TARGET_REF:-master}"
-          git push origin "HEAD:${branch}"
+          echo "Pushing to branch: ${TARGET_REF}"
+          git push origin "HEAD:${TARGET_REF}"
