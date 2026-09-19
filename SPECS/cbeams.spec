@@ -11,12 +11,13 @@ Source0:        %{name}-%{version}.tar.gz
 %global _unpackaged_files_terminate_build 0
 
 
-BuildRequires:  python314-devel
-BuildRequires:  python314-pip
-BuildRequires:  python314-wheel
-BuildRequires:  python314-setuptools
+%global skip_python314 1
+BuildRequires:  python313-devel
+BuildRequires:  python313-pip
+BuildRequires:  python313-wheel
+BuildRequires:  python313-setuptools
 BuildRequires:  python-rpm-macros
-Requires:       python314-colorama
+Requires:       python313-colorama
 
 %description
 Colorful animated beams in the terminal

@@ -88,21 +88,21 @@ class TestGenSpecs:
             f"нет %{{_bindir}}/{sample_pkg['bins'][0]} в %files"
 
     def test_suse_name_map(self):
-        """Fedora-имена BR переводятся в openSUSE (Tumbleweed: python3 => 3.14)"""
+        """Fedora-имена BR переводятся в openSUSE (Tumbleweed: python3 => 3.13)"""
         import gen_specs
         cases = {
             "cargo-rpm-macros": "cargo-packaging",
-            "python3-dbus": "python314-dbus-python",
-            "python3-distro": "python314-distro",
-            "python3-netifaces": "python314-netifaces",
-            "python3-setproctitle": "python314-setproctitle",
-            "python3-colorama": "python314-colorama",
-            "python3-rich": "python314-rich",
+            "python3-dbus": "python313-dbus-python",
+            "python3-distro": "python313-distro",
+            "python3-netifaces": "python313-netifaces",
+            "python3-setproctitle": "python313-setproctitle",
+            "python3-colorama": "python313-colorama",
+            "python3-rich": "python313-rich",
             "libusb1-devel": "libusb-1_0-devel",
             "libjpeg-turbo-devel": "libjpeg8-devel",
             "glslang": "glslang-devel",
-            "python3-devel": "python314-devel",
-            "python3": "python314",
+            "python3-devel": "python313-devel",
+            "python3": "python313",
             "golang": "go",
         }
         for fedora, suse_name in cases.items():

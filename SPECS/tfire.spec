@@ -12,9 +12,9 @@ Source0:        %{name}-%{version}.tar.gz
 
 
 BuildArch:      noarch
-BuildRequires:  python314
+BuildRequires:  python313
 Requires:       bash
-Requires:       python314
+Requires:       python313
 
 %description
 Fire animation in your terminal

@@ -188,13 +188,13 @@ def esc_pct(s: str) -> str:
 SUSE_NAME_MAP = {
     "cargo-rpm-macros": "cargo-packaging",
     "pyproject-rpm-macros": "python-rpm-macros",
-    "python3-devel": "python314-devel",
-    "python3": "python314",
+    "python3-devel": "python313-devel",
+    "python3": "python313",
     "golang": "go",
     "nodejs": "nodejs-default",
     "ruby(release)": "ruby",
     "rubygems-devel": "ruby-devel",
-    "python3-dbus": "python314-dbus-python",
+    "python3-dbus": "python313-dbus-python",
     "libusb1-devel": "libusb-1_0-devel",
     "libjpeg-turbo-devel": "libjpeg8-devel",
     "glslang": "glslang-devel",
@@ -205,9 +205,9 @@ def suse(name: str) -> str:
     """Translate a Fedora package name to its openSUSE equivalent."""
     if name in SUSE_NAME_MAP:
         return SUSE_NAME_MAP[name]
-    # Tumbleweed's default python3 is 3.14: any python3-<mod> maps to python314-<mod>.
+    # Tumbleweed's default python3 (primary) is 3.13: python3-<mod> maps to python313-<mod>.
     if name.startswith("python3-"):
-        return "python314-" + name[len("python3-"):]
+        return "python313-" + name[len("python3-"):]
     return name
 
 
@@ -383,6 +383,12 @@ def body_python_pkg(m: Package, br: list[str], req: list[str]) -> str:
     """Generate body for python-pkg ecosystem (openSUSE-native)."""
     br = ["python3-devel", "python3-pip", "python3-wheel", "python3-setuptools", "pyproject-rpm-macros"] + br
     out: list[str] = []
+    out += [
+        # openSUSE pyproject macros iterate over all co-installable flavors
+        # (currently python314 + python313); build only the primary python3
+        # to avoid pulling an unrequested interpreter into the build lane.
+        "%global skip_python314 1",
+    ]
     add_br_req(out, br, req)
 
     out += [
