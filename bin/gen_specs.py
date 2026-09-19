@@ -194,6 +194,10 @@ SUSE_NAME_MAP = {
     "nodejs": "nodejs-default",
     "ruby(release)": "ruby",
     "rubygems-devel": "ruby-devel",
+    "python3-dbus": "python311-dbus-python",
+    "libusb1-devel": "libusb-1_0-devel",
+    "libjpeg-turbo-devel": "libjpeg8-devel",
+    "glslang": "glslang-devel",
 }
 
 
@@ -429,32 +433,48 @@ def body_python_script(m: Package, br: list[str], req: list[str]) -> str:
 
 
 def body_cargo(m: Package, br: list[str], req: list[str]) -> str:
-    """Generate body for cargo ecosystem."""
-    br = ["cargo", "rust", "gcc", "gcc-c++", "cargo-rpm-macros"] + br
+    """Generate body for cargo ecosystem (openSUSE: без %cargo_prep/%cargo_build).
+
+    openSUSE Tumbleweed не определяет Fedora-макросы %cargo_prep/%cargo_build/
+    %cargo_install (cargo-packaging). Поэтому: vendor-источники через
+    .cargo/config.toml + cargo build --release --offline + ручной install.
+    """
+    br = ["cargo", "rust", "gcc", "gcc-c++"] + br
     out: list[str] = []
     add_br_req(out, br, req)
 
     cd_b = f"cd {m.cdir}\n" if m.cdir else ""
     envs = "".join(f"export {e}\n" for e in m.build_env)
+    bins = m.bins or ["%{name}"]
+    inst = "\n".join(
+        f"install -Dpm0755 target/release/{b} %{{buildroot}}%{{_bindir}}/{b}"
+        for b in bins
+    )
 
     out += [
         "",
         prep(m),
-        "%cargo_prep",
+        f"mkdir -p .cargo",
+        "cat > .cargo/config.toml <<'EOF'",
+        '[source.crates-io]',
+        'replace-with = "vendored-sources"',
+        "",
+        "[source.vendored-sources]",
+        'directory = "vendor"',
+        "EOF",
         "",
         "%build",
-        cd_b + envs + "%cargo_build",
+        cd_b + envs + "cargo build --release --offline",
         "",
         "%install",
-        cd_b + envs + "%cargo_install",
-        "rm -rf %{buildroot}%{_datadir}/cargo",
+        cd_b + inst,
         "",
         "%files",
         "%license LICENSE* COPYRIGHT*",
         "%doc README*",
     ]
 
-    for b in m.bins or ["%{name}"]:
+    for b in bins:
         out.append(f"%{{_bindir}}/{b}")
 
     return "\n".join(out) + "\n"

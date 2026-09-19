@@ -5,12 +5,17 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: validate-{{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -20,9 +25,29 @@ jobs:
         run: pip install pytest pyyaml
       - name: Generate specs
         run: python3 bin/gen_specs.py --all
+      - name: Idempotency (regen must be a no-op)
+        run: |
+          python3 bin/gen_specs.py --all
+          if git diff --exit-code -- SPECS/ >/dev/null; then
+            echo "OK: SPECS/ после повторной генерации не изменился"
+          else
+            echo "FAIL: gen_specs.py --all неидемпотентен" >&2
+            git diff --stat -- SPECS/ >&2
+            exit 1
+          fi
+      - name: No Fedora-only macros in generated specs
+        run: |
+          bad=0
+          for m in cargo_prep cargo_build cargo_install pyproject_buildrequires pyproject_wheel pyproject_install pyproject_save_files; do
+            if grep -rl "%$m" SPECS/ > /dev/null 2>&1; then
+              echo "FAIL: макрос %$m не должен встречаться в SPECS (openSUSE не предоставляет его)" >&2
+              grep -rl "%$m" SPECS/ | head -20 >&2
+              bad=1
+            fi
+          done
+          if [ "$bad" -ne 0 ]; then exit 1; else echo "OK: Fedora-макросы отсутствуют"; fi
       - name: Run test suite
-        # test_gen_pages* are stale: bin/gen-pages-html.py does not exist in this repo
-        run: python3 -m pytest -q -k "not GenPages"
+        run: python3 -m pytest -q
 
   opensuse-specs:
     runs-on: ubuntu-latest
@@ -34,21 +59,10 @@ jobs:
       - name: Validate specs in openSUSE Tumbleweed
         run: |
           docker run --rm -v "$PWD":/work:ro -w /work registry.opensuse.org/opensuse/tumbleweed bash -ec '
-            zypper -n install -y rpm-build rpm python3 >/dev/null 2>&1 || true
-            zypper -n refresh >/dev/null 2>&1 || true
-
-            echo "== installing macro-provider packages (tolerant) =="
-            for p in \
-              python313-rpm-macros python312-rpm-macros python311-rpm-macros python-rpm-macros \
-              rubygems-devel ruby-devel cargo-packaging nodejs-packaging golang-packaging ; do
-              if zypper -n --no-refresh install -y "$p" >/dev/null 2>&1; then
-                echo "OK      $p"
-              else
-                echo "MISSING $p"
-              fi
-            done
+            zypper -n --gpg-auto-import-keys install -y rpm-build rpm python3 > /dev/null 2>&1
 
             echo "== macro availability =="
+            undef=""
             for m in gem_name gem_dir gem_cache gem_install \
                      pyproject_files pyproject_install pyproject_wheel \
                      pyproject_buildrequires pyproject_save_files pyproject_extras_subpkg \
@@ -56,31 +70,40 @@ jobs:
               v=$(rpm -E "%${m}" 2>/dev/null)
               if [ "$v" = "%${m}" ]; then
                 echo "UNDEFINED %${m}"
+                undef="$undef %${m}"
               else
                 echo "defined   %${m} = $(printf "%s" "$v" | head -c 70)"
               fi
             done
+            echo "undef=$undef"
 
-            echo "== unexpanded macros across SPECS =="
+            echo "== unexpanded macros across SPECS (must be 0) =="
             bad=0
             for s in SPECS/*.spec; do
-              left=$(rpmspec -P "$s" 2>/dev/null | grep -oE "%\{[A-Za-z_][A-Za-z0-9_]*\}" | sort -u | tr "\n" " ")
+              left=$(rpmspec -P "$s" 2>/dev/null | grep -oE "%\{[A-Za-z_][A-Za-z0-9_]*\}" | sort -u | grep -vx '%{name}\|%{version}\|%{release}' | tr "\n" " ")
               if [ -n "$left" ]; then echo "UNEXPANDED $s :: $left"; bad=$((bad+1)); fi
             done
-            echo "RESULT unexpanded_specs=$bad"
+            echo "unexpanded_specs=$bad"
+            [ "$bad" -eq 0 ] || { echo "FAIL: есть нераскрытые макросы"; exit 1; }
 
-            echo "== BuildRequires resolvability (pilot) =="
-            for p in jp2a lavat starship ricksay colorls lazygit albafetch yosay archey4 pridefetch neofetch linuxwave; do
+            echo "== BuildRequires resolvability (pilot + репорт-кандидаты) =="
+            miss_total=0
+            for p in tealdeer sd yazi broot dua pipes.rs wallust Rio jp2a cyme \
+                     archey4 pywal colorls lazygit starship lavat linuxwave \
+                     animfetch bacon bottom delta grex hyperfine; do
               s="SPECS/$p.spec"; [ -f "$s" ] || continue
               brs=$(rpmspec -q --buildrequires "$s" 2>/dev/null | tr "\n" " ")
-              if zypper -n --no-refresh install --dry-run -y $brs >/dev/null 2>&1; then
+              if zypper -n --no-refresh install --dry-run -y $brs > /dev/null 2>&1; then
                 echo "BR-OK $p"
               else
                 miss=""
                 for b in $brs; do
-                  zypper -n --no-refresh install --dry-run -y "$b" >/dev/null 2>&1 || miss="$miss $b"
+                  zypper -n --no-refresh install --dry-run -y "$b" > /dev/null 2>&1 || miss="$miss $b"
                 done
                 echo "BR-MISSING $p ::$miss"
+                miss_total=$((miss_total+1))
               fi
             done
+            echo "br_missing_pkgs=$miss_total"
+            [ "$miss_total" -eq 0 ] || { echo "FAIL: есть неразрешимые BuildRequires"; exit 1; }
           '

@@ -17,8 +17,13 @@ import sys
 import time
 from pathlib import Path
 
-OWNER = "arcticlore"
-PROJECT = "candy-opensuse-beta"
+OVERRIDE = os.environ.get("COPR_PROJECT", "").strip()
+if "/" in OVERRIDE:
+    OWNER, PROJECT = OVERRIDE.split("/", 1)
+else:
+    OWNER = "arcticlore"
+    PROJECT = "candy-opensuse-beta"
+print(f"# COPR project: {OWNER}/{PROJECT}", file=sys.stderr)
 COPR_URL = "https://copr.fedorainfracloud.org/api_3"
 PAGE_LIMIT = 100
 

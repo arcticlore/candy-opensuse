@@ -1,0 +1,42 @@
+name: sync specs (opensuse beta)
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ветка/sha для checkout (по умолчанию master)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  regen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || '' }}
+          fetch-depth: 1
+
+      - name: Regenerate specs
+        run: python3 bin/gen_specs.py --all
+
+      - name: Commit regenerated SPECS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_REF: ${{ inputs.ref }}
+        run: |
+          git config user.name "candy-bot"
+          git config user.email "candy-bot@users.noreply.github.com"
+          if git diff --quiet -- SPECS/; then
+            echo "SPECS/ уже синхронизирован с генератором"
+            exit 0
+          fi
+          git add SPECS/
+          git diff --cached --stat | tail -5
+          git commit -qm "regen: synchronize SPECS/ with gen_specs.py [skip ci]"
+          branch="${TARGET_REF:-master}"
+          git push origin "HEAD:${branch}"

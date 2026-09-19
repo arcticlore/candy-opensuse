@@ -67,3 +67,56 @@ class TestGenSpecs:
         assert "/" in name, f"COPR имя должно содержать '/': {name}"
         owner, project = name.split("/", 1)
         assert owner and project, f"Неполное COPR имя: {name}"
+
+    def test_cargo_body_no_fedora_macros(self, sample_pkg):
+        """openSUSE: в cargo-спеке не должно быть Fedora-макросов %cargo_*"""
+        import gen_specs
+        m = gen_specs.Package(sample_pkg)
+        body = gen_specs.body_cargo(m, list(sample_pkg.get("br", [])), [])
+        for macro in ("%cargo_prep", "%cargo_build", "%cargo_install", "cargo-rpm-macros"):
+            assert macro not in body, f"Скрыт Fedora-макрос {macro} в cargo-бэкенде"
+        assert "cargo build --release --offline" in body, "нет offline-сборки"
+        assert "replace-with = \"vendored-sources\"" in body, "нет vendored-sources"
+
+    def test_cargo_body_installs_binary(self, sample_pkg):
+        """cargo-бэкенд ставит бинарники через install -Dpm0755"""
+        import gen_specs
+        m = gen_specs.Package(sample_pkg)
+        body = gen_specs.body_cargo(m, [], [])
+        assert "install -Dpm0755 target/release/" in body, "нет установки из target/release"
+        assert f"%{{_bindir}}/{sample_pkg['bins'][0]}" in body, \
+            f"нет %{{_bindir}}/{sample_pkg['bins'][0]} в %files"
+
+    def test_suse_name_map(self):
+        """Fedora-имена BR переводятся в openSUSE"""
+        import gen_specs
+        cases = {
+            "cargo-rpm-macros": "cargo-packaging",
+            "python3-dbus": "python311-dbus-python",
+            "libusb1-devel": "libusb-1_0-devel",
+            "libjpeg-turbo-devel": "libjpeg8-devel",
+            "glslang": "glslang-devel",
+            "python3-devel": "python311-devel",
+            "golang": "go",
+        }
+        for fedora, suse_name in cases.items():
+            assert gen_specs.suse(fedora) == suse_name, \
+                f"suse({fedora!r}) = {gen_specs.suse(fedora)!r}, ожидалось {suse_name!r}"
+
+    def test_suse_name_map_contains_legacy(self):
+        """Не должно остаться Fedora-имён в pkgs.json, непереведённых сuse()"""
+        import json, os, gen_specs
+        pkgs = json.load(open(os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "pkgs.json")))
+        fedora_only = {"python3-dbus", "libjpeg-turbo-devel", "libusb1-devel"}
+        for pkg in pkgs["packages"]:
+            for br in pkg.get("br", []):
+                base = br.split()[0] if br.split() else br
+                assert base not in fedora_only or gen_specs.suse(base) != base, \
+                    f"{pkg['name']}: BR {base!r} не переведён для openSUSE"
+
+    def test_topdir_persisted(self, pkgs_json):
+        """Все enabled-пакеты имеют topdir (идемпотентность --all)"""
+        missing = [p["name"] for p in pkgs_json["packages"]
+                   if p.get("enabled", True) and not p.get("topdir")]
+        assert not missing, f"Нет topdir у: {missing}"

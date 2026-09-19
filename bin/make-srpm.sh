@@ -157,9 +157,20 @@ FL="$RUNDIR/filelist.txt"
 tar tzf "$SRC" 2>/dev/null | sed "s|^[^/]*/||" | grep -vE "^$" > "$FL" || true
 export CANDY_FILELIST_PATH="$FL"
 
-# автодетект верхнего каталога тарбола
+# автодетект верхнего каталога тарбола; персистим в pkgs.json,
+# чтобы gen_specs.py --all (без env) воспроизводил тот же topdir
 if TD=$(tar tzf "$SRC" 2>/dev/null | head -1 | cut -d/ -f1); [ -n "${TD:-}" ] && [ "${TD:-x}" != "$SRC" ]; then
     export CANDY_TOPDIR="$TD"
+    python3 - "$NAME" "$TD" <<'PY'
+import json,sys
+n,td=sys.argv[1],sys.argv[2]
+p=json.load(open("pkgs.json"))
+for x in p["packages"]:
+    if x["name"]==n and x.get("topdir")!=td:
+        x["topdir"]=td
+json.dump(p,open("pkgs.json","w"),ensure_ascii=False,indent=1)
+open("pkgs.json","a").write("\n")
+PY
 fi
 
 bin/gen_specs.py "$NAME" "$VER" > "SPECS/$NAME.spec"
