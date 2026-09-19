@@ -36,6 +36,7 @@ jobs:
           COPR_PROJECT: arcticlore/candy-opensuse-pilot
           PKGS: ${{ inputs.pkgs }}
         run: |
+          mkdir -p logs
           for name in $(echo "$PKGS" | tr ',' ' '); do
             name=$(echo "$name" | xargs)
             [ -z "$name" ] && continue
