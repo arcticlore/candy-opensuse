@@ -101,7 +101,10 @@
     "merge_base": "d69ef5b5bcfdb46b111df0f6fc084a4695c7b924",
     "policy": "не merge/не cherry-pick; только knowledge; архив и удаление только с approval владельца"
   },
-  "az5_stop_file": "present",
+  "az5": {
+    "status": "decommissioned",
+    "note": "2026-09-20: AZ5 stop-file, gates в update.yml/logrotate.yml, docs и refs удалены полностью; рабочая ветка fix/opensuse-four-chroot-remediation. См. commit decommission AZ-5."
+  },
   "matrix_128_canonical": {
     "opensuse-tumbleweed-x86_64": {
       "succeeded": 57,

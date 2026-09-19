@@ -13,6 +13,38 @@ permissions:
   contents: read
 
 jobs:
+  decommission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: AZ-5 fully decommissioned (no file, gates, or refs)
+        run: |
+          set -euo pipefail
+          hits=$(rg -l -i 'AZ5|AZ-5|АЗ-5|АЗ5' . --glob '!.git/**' --glob '!**/__pycache__/**' || true)
+          if [ -z "$hits" ]; then
+            echo "OK: no AZ-5 references remain"
+          else
+            echo "FAIL: AZ-5 references still present:" >&2
+            echo "$hits" >&2
+            exit 1
+          fi
+          if [ -e AZ5 ]; then
+            echo "FAIL: AZ5 stop file still exists" >&2
+            exit 1
+          fi
+          echo "OK: no AZ5 stop file"
+      - name: Production workflows have no AZ-5 gate dependency
+        run: |
+          set -euo pipefail
+          for wf in .github/workflows/*.yml; do
+            if grep -qE 'AZ5|АЗ-5|guard\.outputs|needs\.guard' "$wf"; then
+              echo "FAIL: $wf still depends on AZ-5/guard" >&2
+              exit 1
+            fi
+          done
+          echo "OK: no production workflow depends on AZ-5/guard"
+
   drift-check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
