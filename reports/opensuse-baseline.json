@@ -40,12 +40,14 @@
     ],
     "pilot_active": [
       "opensuse-tumbleweed-x86_64",
-      "opensuse-tumbleweed-aarch64"
+      "opensuse-tumbleweed-aarch64",
+      "opensuse-leap-16.0-x86_64",
+      "opensuse-leap-16.0-aarch64"
     ]
   },
   "enable_net": {
     "production": false,
-    "pilot": null
+    "pilot": false
   },
   "packages": {
     "enabled": 128,
@@ -120,5 +122,6 @@
       "failed": 69,
       "succeeded": 9
     }
-  }
+  },
+  "phase_b_note": "2026-09-20: pilot COPR расширен до 4 обязательных chroot; enable_net переведён True->False."
 }

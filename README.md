@@ -2,7 +2,7 @@
 
 **БЕТА.** Экспериментальный порт проекта [candy-rpm](https://github.com/arcticlore/candy-rpm)
 (terminal eye candy: fetch-инструменты, ASCII-анимации, современные CLI-замены)
-на **openSUSE Tumbleweed**.
+на **openSUSE Tumbleweed и Leap 16.0** (x86_64 + aarch64).
 
 Основной (стабильный) проект живёт отдельно и собирается под Fedora 43/44/45/rawhide:
 
@@ -15,10 +15,11 @@
 ## Статус
 
 - COPR-проект: https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse-beta/
-- Чруты: `opensuse-tumbleweed-x86_64`, `opensuse-tumbleweed-aarch64`
+- Чруты: `opensuse-tumbleweed-x86_64`, `opensuse-tumbleweed-aarch64`,
+  `opensuse-leap-16.0-x86_64`, `opensuse-leap-16.0-aarch64`
 - Пакеты могут не собираться и ломаться без предупреждения. Это ожидаемо.
 
-## Установка (openSUSE Tumbleweed)
+## Установка (openSUSE Tumbleweed / Leap 16.0)
 
 ```sh
 # нужен включённый репозиторий COPR (пакет dnf-plugins-core / dnf copr plugin)

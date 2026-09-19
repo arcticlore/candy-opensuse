@@ -13,6 +13,14 @@ permissions:
   contents: read
 
 jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Required 4-chroot drift check (repo vs production vs pilot)
+        run: |
+          python3 bin/drift-check.py
   tests:
     runs-on: ubuntu-latest
     timeout-minutes: 20

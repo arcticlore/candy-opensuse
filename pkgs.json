@@ -3,9 +3,11 @@
   "copr_name": "arcticlore/candy-opensuse-beta",
   "chroots": [
    "opensuse-tumbleweed-x86_64",
-   "opensuse-tumbleweed-aarch64"
+   "opensuse-tumbleweed-aarch64",
+   "opensuse-leap-16.0-x86_64",
+   "opensuse-leap-16.0-aarch64"
   ],
-  "description": "BETA: Terminal eye candy (fetch tools, ASCII animations, modern CLI replacements) for openSUSE Tumbleweed. Experimental port of arcticlore/candy-rpm. Auto-updated from upstream releases. Maintainer: arcticlore",
+  "description": "BETA: Terminal eye candy (fetch tools, ASCII animations, modern CLI replacements) for openSUSE Tumbleweed and Leap 16.0 (x86_64 + aarch64). Experimental port of arcticlore/candy-rpm. Auto-updated from upstream releases. Maintainer: arcticlore",
   "workers": 8
  },
  "packages": [
