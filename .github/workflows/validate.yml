@@ -37,8 +37,14 @@ jobs:
       - name: Production workflows have no AZ-5 gate dependency
         run: |
           set -euo pipefail
-          for wf in .github/workflows/*.yml; do
-            if grep -qE 'AZ5|АЗ-5|guard\.outputs|needs\.guard' "$wf"; then
+          # Проверяем только производственные workflows; validate.yml исключён,
+          # т.к. его собственный статический pattern содержит эти слова.
+          for wf in \
+            .github/workflows/update.yml \
+            .github/workflows/logrotate.yml \
+            .github/workflows/sync-specs.yml \
+            .github/workflows/pilot-build.yml ; do
+            if grep -qE 'AZ5|AZ-5|АЗ-5|guard\.outputs|needs\.guard' "$wf"; then
               echo "FAIL: $wf still depends on AZ-5/guard" >&2
               exit 1
             fi
@@ -99,7 +105,7 @@ jobs:
           - name: tumbleweed
             image: registry.opensuse.org/opensuse/tumbleweed
           - name: leap-16.0
-            image: registry.opensuse.org/opensuse/leap/16.0
+            image: opensuse/leap:16.0
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       - name: Generate specs
