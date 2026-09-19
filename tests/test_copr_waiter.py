@@ -40,6 +40,12 @@ class TestParseBuildIds:
     def test_build_was_created_id(self):
         assert parse_build_ids("Build was created (id 987654).") == [987654]
 
+    def test_created_builds_colon_plural(self):
+        assert parse_build_ids("Created builds: 11005028") == [11005028]
+
+    def test_created_builds_colon_multiple(self):
+        assert parse_build_ids("Created builds: 11005028, 11005029") == [11005028, 11005029]
+
     def test_empty_on_garbage(self):
         assert parse_build_ids("nothing here at all") == []
 

@@ -35,13 +35,15 @@ def parse_build_ids(output_text: str) -> List[int]:
       'Created build(s) 123456,789012.'
       'Build was created (id 123456).'
       'Created build 123456'
+      'Created builds: 12005028'   (modern copr-cli, colon, plural)
     Returns [] if nothing parseable (caller must fail — silent 'success' is a bug).
     """
     import re
 
     ids: List[int] = []
     for m in re.finditer(
-        r"(?:Created build[s]?\(s\)|\bids?\b)[^0-9]*([0-9][0-9,\s]*)", output_text
+        r"(?:Created build[s]?\(s\)|Created builds?:|\bids?\b)[^0-9]*([0-9][0-9,\s]*)",
+        output_text,
     ):
         for num in re.findall(r"[0-9]+", m.group(1)):
             if int(num) > 0:
@@ -65,7 +67,7 @@ def fetch_chroot_states(
     import urllib.error
     import urllib.request
 
-    url = f"{api_base}/api_3/build_chroot/list?build_id={build_id}&limit=100"
+    url = f"{api_base}/api_3/build-chroot/list?build_id={build_id}&limit=100"
     headers = {}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -122,7 +124,7 @@ def fetch_parent_state(
     import urllib.error
     import urllib.request
 
-    url = f"{api_base}/api_3/build/get?build_id={build_id}"
+    url = f"{api_base}/api_3/build/{build_id}"
     headers = {}
     if token:
         headers["Authorization"] = f"Bearer {token}"
