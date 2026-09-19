@@ -535,8 +535,7 @@
    "use": "archey",
    "alt": "pip install archey4",
    "extra_files": [
-    "%{_bindir}/archey",
-    "%{_docdir}/archey4"
+    "%{_bindir}/archey"
    ],
    "topdir": "%{name}-%{version}"
   },

@@ -11,7 +11,11 @@ Source0:        %{name}-%{version}.tar.gz
 %global _unpackaged_files_terminate_build 0
 
 
+%global skip_python314 1
 BuildRequires:  python313-devel
+BuildRequires:  python313-pip
+BuildRequires:  python313-wheel
+BuildRequires:  python313-setuptools
 BuildRequires:  python-rpm-macros
 BuildRequires:  python313-dbus-python
 BuildRequires:  python313-distro
@@ -43,7 +47,6 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 %files
 %{python3_sitelib}/*
 %{_bindir}/archey
-%{_docdir}/archey4
 
 %changelog
 * Sat Sep 19 2026 candy-bot <candy@localhost> - 4.15.0.0-1
