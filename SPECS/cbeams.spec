@@ -14,6 +14,7 @@ Source0:        %{name}-%{version}.tar.gz
 BuildRequires:  python314-devel
 BuildRequires:  python314-pip
 BuildRequires:  python314-wheel
+BuildRequires:  python314-setuptools
 BuildRequires:  python-rpm-macros
 Requires:       python314-colorama
 

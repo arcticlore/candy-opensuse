@@ -381,7 +381,7 @@ def body_script(m: Package, br: list[str], req: list[str]) -> str:
 
 def body_python_pkg(m: Package, br: list[str], req: list[str]) -> str:
     """Generate body for python-pkg ecosystem (openSUSE-native)."""
-    br = ["python3-devel", "python3-pip", "python3-wheel", "pyproject-rpm-macros"] + br
+    br = ["python3-devel", "python3-pip", "python3-wheel", "python3-setuptools", "pyproject-rpm-macros"] + br
     out: list[str] = []
     add_br_req(out, br, req)
 
