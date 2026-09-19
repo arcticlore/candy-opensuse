@@ -47,7 +47,6 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 %files
 %{python3_sitelib}/*
 %{_bindir}/archey
-%{_docdir}/archey4
 
 %changelog
 * Sat Sep 19 2026 candy-bot <candy@localhost> - 4.15.0.0-1
