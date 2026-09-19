@@ -105,6 +105,57 @@ def fetch_chroot_states(
     raise ApiError(f"COPR API failed after retries: {last_err}")
 
 
+def fetch_parent_state(
+    build_id: int,
+    api_base: str,
+    token: Optional[str],
+    timeout: int = 30,
+    max_retries: int = 3,
+    retry_backoff: float = 5.0,
+) -> Optional[str]:
+    """Return the parent COPR build's state (''succeeded'', ''running'', ...).
+
+    The parent build is the authoritative ''is the whole thing done'' flags.
+    Returns None if the parent state is not available (caller must treat a
+    missing chroot as non-terminal while parent state is unknown).
+    """
+    import urllib.error
+    import urllib.request
+
+    url = f"{api_base}/api_3/build/get?build_id={build_id}"
+    headers = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers)
+
+    last_err: Optional[Exception] = None
+    for attempt in range(max_retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                payload = resp.read().decode("utf-8")
+            try:
+                data = json.loads(payload)
+            except json.JSONDecodeError as exc:
+                raise ApiError(f"malformed JSON from parent-build API: {exc}") from exc
+            if not isinstance(data, dict):
+                raise ApiError(f"unexpected parent API payload shape: {type(data).__name__}")
+            state = data.get("state")
+            return state if isinstance(state, str) else None
+        except urllib.error.HTTPError as exc:
+            if attempt < max_retries and exc.code in (502, 503, 504):
+                last_err = exc
+                time.sleep(retry_backoff * (2 ** attempt))
+                continue
+            raise ApiError(f"parent-build COPR API HTTP {exc.code}") from exc
+        except urllib.error.URLError as exc:
+            if attempt < max_retries:
+                last_err = exc
+                time.sleep(retry_backoff * (2 ** attempt))
+                continue
+            raise ApiError(f"parent-build COPR API unreachable: {exc.reason}") from exc
+    raise ApiError(f"parent-build COPR API failed after retries: {last_err}")
+
+
 def _statuses_from_rows(rows: List[Tuple[str, str, Optional[str]]]) -> Dict[str, str]:
     return {name: state for name, state, _url in rows}
 
@@ -115,6 +166,7 @@ def decide(
     elapsed: float,
     deadline: float,
     seen: Optional[Dict[str, str]] = None,
+    parent_state: Optional[str] = None,
 ) -> Tuple[bool, str]:
     """One decision step of the state machine.
 
@@ -123,6 +175,10 @@ def decide(
     elapsed   — seconds elapsed since submit.
     deadline  — seconds of total wall time allowed.
     seen      — running accumulator of last known state per chroot (mutated!).
+    parent_state — authoritative parent COPR build state. A required chroot
+        that has not appeared yet counts as terminal failure ONLY when the
+        parent build is itself terminal; while the parent is non-terminal a
+        missing chroot keeps the poll going (it may still appear).
 
     Returns (concluded, verdict). concluded=True means the caller must stop
     and treat 'verdict' as final. verdict is either 'ok' (4/4 succeeded) or a
@@ -152,11 +208,18 @@ def decide(
 
     observed = [c for c in required_chroots if c in seen]
     missing = [c for c in required_chroots if c not in seen]
+
+    if missing and parent_state not in TERMINAL:
+        # Chroot ещё не появился, а родительский build не готов — продолжаем polling.
+        return False, ""
+
+    if missing:
+        # Parent build уже terminal, но obligatory chroot так и не пришёл → failure.
+        _finish_accumulator(seen, required_chroots)
+        return True, f"terminal build missing chroot(s): {', '.join(missing)}"
+
     if observed and all(seen[c] in TERMINAL for c in observed):
         _finish_accumulator(seen, required_chroots)
-        if missing:
-            # Terminal build, но один из обязательных чрутов так и не появился.
-            return True, f"terminal build missing chroot(s): {', '.join(missing)}"
         bad = [c for c in required_chroots if seen[c] != FINISHED_OK]
         bad_detail = ", ".join(f"{c} ({seen[c]})" for c in bad)
         if not bad:
@@ -198,12 +261,18 @@ def wait_for_build(
     deadline: float,
     step: Callable[[int], float],
     on_progress: Optional[Callable[[int, Dict[str, str]], None]] = None,
+    fetch_parent: Optional[Callable[[int], Optional[str]]] = None,
     api_retries: int = 3,
 ) -> Tuple[int, Dict[str, str], str]:
     """Poll until conclusion. Returns (exit_code, last_seen, verdict).
 
-    Transient ApiError from ``fetch`` is retried up to ``api_retries`` times
-    (bounded backoff); persistent failure raises (caller converts to exit 1).
+    Transient ApiError from ``fetch``/``fetch_parent`` is retried up to
+    ``api_retries`` times (bounded backoff); persistent failure raises
+    (caller converts to exit 1).
+
+    ``fetch_parent`` returns the authoritative parent build state; used to
+    decide whether a not-yet-appeared required chroot is terminal-failing
+    (parent terminal) or still in-flight (parent non-terminal).
     """
     start = time.monotonic()
     seen: Dict[str, str] = {}
@@ -213,6 +282,7 @@ def wait_for_build(
         step_no += 1
         try:
             state = fetch(build_id)
+            parent_state = fetch_parent(build_id) if fetch_parent else None
         except ApiError:
             errors += 1
             elapsed = time.monotonic() - start
@@ -224,7 +294,9 @@ def wait_for_build(
         if on_progress:
             on_progress(step_no, state)
         elapsed = time.monotonic() - start
-        concluded, verdict = decide(state, required_chroots, elapsed, deadline, seen)
+        concluded, verdict = decide(
+            state, required_chroots, elapsed, deadline, seen, parent_state
+        )
         if concluded:
             return (0 if verdict == "ok" else 1, seen, verdict)
         time.sleep(step(step_no))
@@ -247,15 +319,42 @@ def _write_step_summary(lines: List[str]) -> None:
         fh.write("\n".join(lines) + "\n")
 
 
+def _cmd_print_build_ids(log_path: str) -> int:
+    with open(log_path, "r", encoding="utf-8") as fh:
+        text = fh.read()
+    ids = parse_build_ids(text)
+    if not ids:
+        print("ERROR: no numeric build id in output", file=sys.stderr)
+        return 1
+    print(ids[0])
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Wait for a COPR pilot build to finish.")
-    parser.add_argument("--build-id", type=int, required=True, help="COPR build id (from submit or resume)")
-    parser.add_argument("--pkgs-json", default="pkgs.json", help="path to pkgs.json (canonical chroots)")
-    parser.add_argument("--api-base", default=os.environ.get("COPR_API_BASE", "https://copr.fedorainfracloud.org"))
-    parser.add_argument("--token", default=os.environ.get("COPR_API_TOKEN", ""), help="COPR API bearer token (never printed)")
-    parser.add_argument("--timeout-min", type=float, default=120.0, help="total deadline in minutes")
-    parser.add_argument("--interval", type=float, default=30.0, help="base poll interval in seconds (bounded exponential backoff)")
+    parser = argparse.ArgumentParser(description="COPR pilot build waiter (watch or parse build ids).")
+    sub = parser.add_subparsers(dest="command", required=False)
+
+    print_ids = sub.add_parser("print-build-ids", help="Extract numeric build id from a copr-cli log file")
+    print_ids.add_argument("log_file", help="path to copr-cli submit output log")
+    print_ids.set_defaults(handler=lambda a: _cmd_print_build_ids(a.log_file))
+
+    watch = sub.add_parser("watch", help="Watch a build until terminal 4/4 (default)")
+    watch.add_argument("--build-id", type=int, required=True, help="COPR build id (from submit or resume)")
+    watch.add_argument("--pkgs-json", default="pkgs.json", help="path to pkgs.json (canonical chroots)")
+    watch.add_argument("--api-base", default=os.environ.get("COPR_API_BASE", "https://copr.fedorainfracloud.org"))
+    watch.add_argument("--token", default=os.environ.get("COPR_API_TOKEN", ""), help="COPR API bearer token (never printed)")
+    watch.add_argument("--timeout-min", type=float, default=120.0, help="total deadline in minutes")
+    watch.add_argument("--interval", type=float, default=30.0, help="base poll interval in seconds (bounded exponential backoff)")
+    watch.add_argument("--no-parent", action="store_true", help=argparse.SUPPRESS)
+    watch.set_defaults(handler="-watch")
+
     args = parser.parse_args(argv)
+
+    if args.command == "print-build-ids":
+        return args.handler(args)
+
+    if args.command is None:
+        parser.error("no subcommand (use 'watch' or 'print-build-ids')")
 
     required_chroots = _read_required_chroots(args.pkgs_json)
     deadline = args.timeout_min * 60.0
@@ -266,12 +365,21 @@ def main(argv: Optional[List[str]] = None) -> int:
     def fetch(build_id: int) -> Dict[str, str]:
         return fetch_chroot_states(build_id, args.api_base, args.token or None)
 
+    def fetch_parent(build_id: int) -> Optional[str]:
+        return fetch_parent_state(build_id, args.api_base, args.token or None)
+
     def progress(step_no: int, state: Dict[str, str]) -> None:
         print(f"  [poll {step_no}] {json.dumps(state, sort_keys=True)}", flush=True)
 
     try:
         rc, seen, verdict = wait_for_build(
-            args.build_id, required_chroots, fetch, deadline, bounded_backoff, progress
+            args.build_id,
+            required_chroots,
+            fetch,
+            deadline,
+            bounded_backoff,
+            progress,
+            fetch_parent if not args.no_parent else None,
         )
     except ApiError as exc:
         print(f"ERROR: {exc}", file=sys.stderr, flush=True)

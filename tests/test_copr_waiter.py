@@ -104,10 +104,22 @@ class TestDecideFailures:
     def test_terminal_build_with_missing_chroot(self):
         poll = {REQUIRED[0]: "succeeded", REQUIRED[1]: "succeeded", REQUIRED[2]: "succeeded"}
         seen = {}
-        concluded, verdict = decide(poll, REQUIRED, 5, 100, seen)
+        concluded, verdict = decide(poll, REQUIRED, 5, 100, seen, parent_state="failed")
         assert concluded is True
         assert "missing" in seen[REQUIRED[3]]
         assert verdict != "ok"
+
+    def test_missing_chroot_while_parent_nonterminal_keeps_polling(self):
+        poll = {REQUIRED[0]: "succeeded", REQUIRED[1]: "succeeded", REQUIRED[2]: "succeeded"}
+        seen = {}
+        concluded, _ = decide(poll, REQUIRED, 5, 100, seen, parent_state="running")
+        assert concluded is False
+
+    def test_missing_chroot_with_parent_unknown_keeps_polling(self):
+        poll = {REQUIRED[0]: "succeeded", REQUIRED[1]: "running"}
+        seen = {}
+        concluded, _ = decide(poll, REQUIRED, 10, 100, seen, parent_state=None)
+        assert concluded is False
 
     def test_missing_chroot_before_deadline_is_nonterminal(self):
         poll = {REQUIRED[0]: "succeeded", REQUIRED[1]: "running"}
@@ -197,6 +209,29 @@ class TestWaitForBuild:
 
         _, _, verdict = wait_for_build(42, REQUIRED, fetch, deadline=0.05, step=step_instant)
         assert "timeout" in verdict
+
+    def test_eventual_appearance_of_missing_chroot(self):
+        states = [
+            {REQUIRED[0]: "succeeded", REQUIRED[1]: "succeeded", REQUIRED[2]: "succeeded"},
+            all_succeeded(),
+        ]
+        parents = ["running", "succeeded"]
+        polls = []
+
+        def fetch(_bid):
+            polls.append("chroot")
+            return states[min(len(states) - 1, len(polls) - 1)]
+
+        def fetch_parent(_bid):
+            return parents[min(len(parents) - 1, len(polls) - 1)]
+
+        rc, seen, verdict = wait_for_build(
+            42, REQUIRED, fetch, deadline=100, step=step_instant, fetch_parent=fetch_parent,
+        )
+        assert rc == 0
+        assert verdict == "ok"
+        assert REQUIRED[3] in seen
+        assert seen[REQUIRED[3]] == "succeeded"
 
 
 class TestFormatSummary:

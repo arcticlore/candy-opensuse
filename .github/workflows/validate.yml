@@ -92,13 +92,21 @@ jobs:
   opensuse-specs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        distro:
+          - name: tumbleweed
+            image: registry.opensuse.org/opensuse/tumbleweed
+          - name: leap-16.0
+            image: registry.opensuse.org/opensuse/leap/16.0
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       - name: Generate specs
         run: python3 bin/gen_specs.py --all
-      - name: Validate specs in openSUSE Tumbleweed
+      - name: Validate specs in ${{ matrix.distro.name }}
         run: |
-          docker run --rm -v "$PWD":/work:ro -w /work registry.opensuse.org/opensuse/tumbleweed bash -ec '
+          docker run --rm -v "$PWD":/work:ro -w /work ${{ matrix.distro.image }} bash -ec '
             zypper -n --gpg-auto-import-keys install -y rpm-build rpm python3 > /dev/null 2>&1
 
             echo "== macro availability =="
@@ -147,3 +155,18 @@ jobs:
             echo "br_missing_pkgs=$miss_total"
             [ "$miss_total" -eq 0 ] || { echo "FAIL: есть неразрешимые BuildRequires"; exit 1; }
           '
+
+  waiters:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: CLI smoke test — print-build-ids + wait[--help]
+        run: |
+          set -euo pipefail
+          printf 'Created build(s) 123456.' > /tmp/copr-out.txt
+          got=$(python3 bin/copr_waiter.py print-build-ids /tmp/copr-out.txt)
+          echo "build-id parsed: $got"
+          [ "$got" = "123456" ] || { echo "FAIL: unexpected build-id '$got'"; exit 1; }
+          python3 bin/copr_waiter.py watch --help > /dev/null
+          echo "OK: copr_waiter CLI works"

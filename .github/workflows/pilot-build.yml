@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       pkgs:
-        description: "Пилотные пакеты через запятую (например tealdeer,broot,dua)"
+        description: "Пилотные пакеты через запятую (например tealdeer,broot,dua). Неизвестное имя = failure."
         required: false
         type: string
         default: "archey4,colorls,tealdeer"
@@ -12,11 +12,13 @@ on:
         required: false
         type: string
         default: ""
-  push:
-    branches: ["ci/pilot/**"]
 
 permissions:
   contents: read
+
+concurrency:
+  group: pilot-build-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -32,43 +34,49 @@ jobs:
             golang nodejs24 nodejs24-npm-bin copr-cli > /dev/null 2>&1 \
             || dnf install -y jq git rpm-build rpmdevtools python3 cargo rust copr-cli
 
-      - name: Build SRPMs, submit, capture build ids (COPR config never logged, removed by trap)
+      - name: Build SRPMs, submit, capture build ids (COPR secret via env, config 0600 + trap)
         id: pilot
         env:
           COPR_PROJECT: arcticlore/candy-opensuse-pilot
           PKGS: ${{ inputs.pkgs || 'archey4,colorls,tealdeer' }}
           RESUME_BUILD: ${{ inputs.resume_build }}
+          COPR_CONFIG_SECRET: ${{ secrets.COPR_CONFIG }}
         run: |
           set -o pipefail
           mkdir -p logs
 
-          # Секрет в лог не пишем; временный config 0600 умирает по trap в конце шага.
-          configure_copr() {
+          write_copr_config() {
+            local conf
+            conf="$RUNNER_TEMP/copr-pilot.conf"
             umask 077
-            CONF=$(mktemp ~/.config/copr.XXXXXX) 2>/dev/null || CONF=$(mktemp)
-            printf '%s' "${{ secrets.COPR_CONFIG }}" > "$CONF"
-            chmod 600 "$CONF"
-            trap 'rm -f "$CONF"' EXIT
-            echo "$CONF"
+            printf '%s\n' "${COPR_CONFIG_SECRET}" > "$conf"
+            chmod 600 "$conf"
+            printf '%s' "$conf"
           }
 
+          CONF=""
           if [ -n "$RESUME_BUILD" ]; then
             echo "  [RESUME] продолжаю наблюдение по build id $RESUME_BUILD (submit не выполняется)"
             echo "build_ids=$RESUME_BUILD" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          COPR_CONFIG=$(configure_copr)
-          export COPR_CONFIG
+          # Основной shell шага: единственный источник правды для cleanup.
+          CONF="$(write_copr_config)"
+          trap 'rm -f "$CONF"' EXIT
+          trap 'trap - EXIT; rm -f "$CONF"; exit 130' HUP INT TERM
+          [ -n "$CONF" ] && echo "COPR config: $CONF (mode $(stat -c '%a' "$CONF"))"
+          echo "secret_interpolated_in_shell=false"
 
           BUILD_IDS=""
-          for name in $(echo "$PKGS" | tr ',' ' '); do
+          for name in $(printf '%s' "$PKGS" | tr ',' ' '); do
             name=$(echo "$name" | xargs)
             [ -z "$name" ] && continue
             echo "== $name =="
+
             if ! jq -e --arg n "$name" '.packages[] | select(.name==$n) | .eco' pkgs.json > /dev/null 2>&1; then
-              echo "  [SKIP] $name: не найден в pkgs.json"
-              continue
+              echo "  [FAIL] $name: не найден в pkgs.json (неизвестное имя = failure, не SKIP)"
+              exit 1
             fi
 
             # stale-SRPM: удаляем старый — submit только из свежего результата make-srpm.
@@ -84,12 +92,12 @@ jobs:
             [ -z "$srpm" ] && { echo "  [FAIL] $name: SRPM не найден"; exit 1; }
 
             echo "  [SUBMIT] $srpm -> $COPR_PROJECT"
-            if ! copr-cli build --nowait "$COPR_PROJECT" "$srpm" > "logs/copr-$name.log" 2>&1; then
+            if ! copr-cli --config "$CONF" build --nowait "$COPR_PROJECT" "$srpm" > "logs/copr-$name.log" 2>&1; then
               echo "  [FAIL] $name: copr-cli rc=$? — хвост лога:"
               tail -12 "logs/copr-$name.log" | sed 's/^/    /'
               exit 1
             fi
-            build_id=$(python3 -c "from copr_waiter import parse_build_ids; import sys; ids=parse_build_ids(open('logs/copr-$name.log').read()); print(ids[0] if ids else '')")
+            build_id=$(python3 bin/copr_waiter.py print-build-ids "logs/copr-$name.log")
             if [ -z "$build_id" ]; then
               echo "  [FAIL] $name: не удалось извлечь numeric build id из вывода copr-cli"
               sed 's/^/    /' "logs/copr-$name.log"
@@ -101,6 +109,7 @@ jobs:
           BUILD_IDS=$(echo "$BUILD_IDS" | xargs)
           [ -n "$BUILD_IDS" ] || { echo "  [FAIL] нет build ids — ничего не сублимировано"; exit 1; }
           echo "build_ids=$BUILD_IDS" >> "$GITHUB_OUTPUT"
+        # trap EXIT гарантирует удаление CONF при success/failure/cancel (TERM/INT).
 
       - name: Wait for terminal 4/4 result (all four chroots, tolerant waiter)
         if: steps.pilot.outputs.build_ids != ''
@@ -114,7 +123,7 @@ jobs:
           for bid in ${{ steps.pilot.outputs.build_ids }}; do
             echo "=== waiting build $bid ==="
             rc=0
-            python3 bin/copr_waiter.py --build-id "$bid" --pkgs-json "$PKGS_JSON" \
+            python3 bin/copr_waiter.py watch --build-id "$bid" --pkgs-json "$PKGS_JSON" \
               --timeout-min 180 --interval 60 || rc=$?
             echo "  waiter rc=$rc for build $bid"
             [ "$rc" -ne 0 ] && total_rc=$rc
