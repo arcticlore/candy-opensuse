@@ -12,9 +12,9 @@ Source0:        %{name}-%{version}.tar.gz
 
 
 BuildArch:      noarch
-BuildRequires:  python3-pytz
-BuildRequires:  python3-rich
-BuildRequires:  python3-tomli-w
+BuildRequires:  python313-pytz
+BuildRequires:  python313-rich
+BuildRequires:  python313-tomli-w
 
 %description
 ASCII art, clock, timer and time manager for the terminal

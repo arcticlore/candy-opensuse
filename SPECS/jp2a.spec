@@ -15,13 +15,10 @@ BuildRequires:  gcc
 BuildRequires:  make
 BuildRequires:  autoconf
 BuildRequires:  automake
-BuildRequires:  gcc
 BuildRequires:  libjpeg8-devel
 BuildRequires:  libpng-devel
 BuildRequires:  libwebp-devel
 BuildRequires:  libexif-devel
-BuildRequires:  autoconf
-BuildRequires:  automake
 BuildRequires:  gettext
 BuildRequires:  libtool
 

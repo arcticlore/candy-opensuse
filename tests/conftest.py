@@ -47,11 +47,11 @@ def sample_pkg():
     return {
         "name": "test-pkg",
         "eco": "cargo",
+        "host": "github",
+        "slug": "test/test-pkg",
         "ver": "1.0.0",
         "enabled": True,
         "prio": 5,
         "br": ["gcc", "gcc-c++"],
-        "src": "https://github.com/test/test/archive/refs/tags/1.0.0.tar.gz",
         "bins": ["test-pkg"],
-        "tags": ["terminal"],
     }

@@ -12,8 +12,8 @@ Source0:        %{name}-%{version}.tar.gz
 
 
 BuildArch:      noarch
-BuildRequires:  python311
-Requires:       python311
+BuildRequires:  python313
+Requires:       python313
 
 %description
 Animated maze generator screensaver

@@ -38,7 +38,7 @@ jobs:
       - name: No Fedora-only macros in generated specs
         run: |
           bad=0
-          for m in cargo_prep cargo_build cargo_install pyproject_buildrequires pyproject_wheel pyproject_install pyproject_save_files; do
+          for m in cargo_prep pyproject_buildrequires pyproject_save_files pyproject_files pyproject_extras_subpkg gem_dir gem_cache ruby_gem_dir; do
             if grep -rl "%$m" SPECS/ > /dev/null 2>&1; then
               echo "FAIL: макрос %$m не должен встречаться в SPECS (openSUSE не предоставляет его)" >&2
               grep -rl "%$m" SPECS/ | head -20 >&2

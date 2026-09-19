@@ -71,7 +71,7 @@ class TestGenSpecs:
     def test_cargo_body_no_fedora_macros(self, sample_pkg):
         """openSUSE: в cargo-спеке не должно быть Fedora-макросов %cargo_*"""
         import gen_specs
-        m = gen_specs.Package(sample_pkg)
+        m = gen_specs.Package(**sample_pkg)
         body = gen_specs.body_cargo(m, list(sample_pkg.get("br", [])), [])
         for macro in ("%cargo_prep", "%cargo_build", "%cargo_install", "cargo-rpm-macros"):
             assert macro not in body, f"Скрыт Fedora-макрос {macro} в cargo-бэкенде"
@@ -81,22 +81,28 @@ class TestGenSpecs:
     def test_cargo_body_installs_binary(self, sample_pkg):
         """cargo-бэкенд ставит бинарники через install -Dpm0755"""
         import gen_specs
-        m = gen_specs.Package(sample_pkg)
+        m = gen_specs.Package(**sample_pkg)
         body = gen_specs.body_cargo(m, [], [])
         assert "install -Dpm0755 target/release/" in body, "нет установки из target/release"
         assert f"%{{_bindir}}/{sample_pkg['bins'][0]}" in body, \
             f"нет %{{_bindir}}/{sample_pkg['bins'][0]} в %files"
 
     def test_suse_name_map(self):
-        """Fedora-имена BR переводятся в openSUSE"""
+        """Fedora-имена BR переводятся в openSUSE (Tumbleweed: python3 => 3.13)"""
         import gen_specs
         cases = {
             "cargo-rpm-macros": "cargo-packaging",
-            "python3-dbus": "python311-dbus-python",
+            "python3-dbus": "python313-dbus-python",
+            "python3-distro": "python313-distro",
+            "python3-netifaces": "python313-netifaces",
+            "python3-setproctitle": "python313-setproctitle",
+            "python3-colorama": "python313-colorama",
+            "python3-rich": "python313-rich",
             "libusb1-devel": "libusb-1_0-devel",
             "libjpeg-turbo-devel": "libjpeg8-devel",
             "glslang": "glslang-devel",
-            "python3-devel": "python311-devel",
+            "python3-devel": "python313-devel",
+            "python3": "python313",
             "golang": "go",
         }
         for fedora, suse_name in cases.items():
