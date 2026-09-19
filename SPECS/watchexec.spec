@@ -16,7 +16,6 @@ BuildRequires:  cargo
 BuildRequires:  rust
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
-BuildRequires:  cargo-packaging
 
 # NOTE: воркспейс; CLI в crates/cli
 
@@ -33,16 +32,22 @@ Don't throw tomatoes - file issues instead.
 
 %prep
 %autosetup -N -a1 -n watchexec-2.7.3
-%cargo_prep
+mkdir -p .cargo
+cat > .cargo/config.toml <<'EOF'
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+EOF
 
 %build
 cd crates/cli
-%cargo_build
+cargo build --release --offline
 
 %install
 cd crates/cli
-%cargo_install
-rm -rf %{buildroot}%{_datadir}/cargo
+install -Dpm0755 target/release/watchexec %{buildroot}%{_bindir}/watchexec
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
 for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done

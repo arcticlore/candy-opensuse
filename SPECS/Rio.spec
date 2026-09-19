@@ -18,9 +18,8 @@ BuildRequires:  rust
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
 BuildRequires:  cargo-packaging
-BuildRequires:  cargo-packaging
 BuildRequires:  fontconfig-devel
-BuildRequires:  glslang
+BuildRequires:  glslang-devel
 BuildRequires:  pkgconf-pkg-config
 
 %description
@@ -36,16 +35,22 @@ Don't throw tomatoes - file issues instead.
 
 %prep
 %autosetup -N -a1 -n rio-0.5.28
-%cargo_prep
+mkdir -p .cargo
+cat > .cargo/config.toml <<'EOF'
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+EOF
 
 %build
 cd frontends/rioterm
-%cargo_build
+cargo build --release --offline
 
 %install
 cd frontends/rioterm
-%cargo_install
-rm -rf %{buildroot}%{_datadir}/cargo
+install -Dpm0755 target/release/rio %{buildroot}%{_bindir}/rio
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
 for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done

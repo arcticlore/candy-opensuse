@@ -17,7 +17,6 @@ BuildRequires:  cargo
 BuildRequires:  rust
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
-BuildRequires:  cargo-packaging
 
 %description
 sysctl(8) с TUI-графикой
@@ -32,16 +31,22 @@ Don't throw tomatoes - file issues instead.
 
 %prep
 %autosetup -N -a1 -n systeroid-0.4.6
-%cargo_prep
+mkdir -p .cargo
+cat > .cargo/config.toml <<'EOF'
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+EOF
 
 %build
 cd systeroid
-%cargo_build
+cargo build --release --offline
 
 %install
 cd systeroid
-%cargo_install
-rm -rf %{buildroot}%{_datadir}/cargo
+install -Dpm0755 target/release/systeroid %{buildroot}%{_bindir}/systeroid
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
 for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done

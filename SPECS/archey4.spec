@@ -13,7 +13,7 @@ Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  python311-devel
 BuildRequires:  python-rpm-macros
-BuildRequires:  python3-dbus
+BuildRequires:  python311-dbus-python
 BuildRequires:  python3-distro
 BuildRequires:  python3-netifaces
 BuildRequires:  python3-setproctitle

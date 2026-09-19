@@ -16,7 +16,7 @@ BuildRequires:  make
 BuildRequires:  autoconf
 BuildRequires:  automake
 BuildRequires:  gcc
-BuildRequires:  libjpeg-turbo-devel
+BuildRequires:  libjpeg8-devel
 BuildRequires:  libpng-devel
 BuildRequires:  libwebp-devel
 BuildRequires:  libexif-devel

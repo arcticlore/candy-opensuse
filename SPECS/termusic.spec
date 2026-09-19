@@ -17,7 +17,6 @@ BuildRequires:  cargo
 BuildRequires:  rust
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
-BuildRequires:  cargo-packaging
 
 # NOTE: воркспейс; тяжёлые зависимости mpv/gstreamer
 
@@ -34,14 +33,20 @@ Don't throw tomatoes - file issues instead.
 
 %prep
 %autosetup -N -a1 -n termusic-0.13.2
-%cargo_prep
+mkdir -p .cargo
+cat > .cargo/config.toml <<'EOF'
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+EOF
 
 %build
-%cargo_build
+cargo build --release --offline
 
 %install
-%cargo_install
-rm -rf %{buildroot}%{_datadir}/cargo
+install -Dpm0755 target/release/termusic %{buildroot}%{_bindir}/termusic
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
 for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done
