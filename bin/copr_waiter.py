@@ -150,12 +150,18 @@ def decide(
             _finish_accumulator(seen, required_chroots)
             return True, f"state '{state}' for {chroot} is neither terminal nor known-inflight"
 
-    if all(seen.get(c) in TERMINAL for c in required_chroots):
+    observed = [c for c in required_chroots if c in seen]
+    missing = [c for c in required_chroots if c not in seen]
+    if observed and all(seen[c] in TERMINAL for c in observed):
         _finish_accumulator(seen, required_chroots)
+        if missing:
+            # Terminal build, но один из обязательных чрутов так и не появился.
+            return True, f"terminal build missing chroot(s): {', '.join(missing)}"
         bad = [c for c in required_chroots if seen[c] != FINISHED_OK]
+        bad_detail = ", ".join(f"{c} ({seen[c]})" for c in bad)
         if not bad:
             return True, "ok"
-        return True, f"terminal non-succeeded chroots: {', '.join(bad)}"
+        return True, f"terminal non-succeeded chroots: {bad_detail}"
 
     return False, ""
 
@@ -192,14 +198,29 @@ def wait_for_build(
     deadline: float,
     step: Callable[[int], float],
     on_progress: Optional[Callable[[int, Dict[str, str]], None]] = None,
+    api_retries: int = 3,
 ) -> Tuple[int, Dict[str, str], str]:
-    """Poll until conclusion. Returns (exit_code, last_seen, verdict)."""
+    """Poll until conclusion. Returns (exit_code, last_seen, verdict).
+
+    Transient ApiError from ``fetch`` is retried up to ``api_retries`` times
+    (bounded backoff); persistent failure raises (caller converts to exit 1).
+    """
     start = time.monotonic()
     seen: Dict[str, str] = {}
     step_no = 0
+    errors = 0
     while True:
         step_no += 1
-        state = fetch(build_id)
+        try:
+            state = fetch(build_id)
+        except ApiError:
+            errors += 1
+            elapsed = time.monotonic() - start
+            if errors > api_retries or elapsed >= deadline:
+                raise
+            time.sleep(step(step_no))
+            continue
+        errors = 0
         if on_progress:
             on_progress(step_no, state)
         elapsed = time.monotonic() - start
