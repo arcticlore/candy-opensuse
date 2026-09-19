@@ -12,8 +12,8 @@ Source0:        %{name}-%{version}.tar.gz
 
 
 BuildArch:      noarch
-BuildRequires:  python313
-Requires:       python313
+BuildRequires:  python314
+Requires:       python314
 
 %description
 Neofetch, but gay

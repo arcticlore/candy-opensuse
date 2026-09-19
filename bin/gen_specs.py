@@ -188,13 +188,13 @@ def esc_pct(s: str) -> str:
 SUSE_NAME_MAP = {
     "cargo-rpm-macros": "cargo-packaging",
     "pyproject-rpm-macros": "python-rpm-macros",
-    "python3-devel": "python313-devel",
-    "python3": "python313",
+    "python3-devel": "python314-devel",
+    "python3": "python314",
     "golang": "go",
     "nodejs": "nodejs-default",
     "ruby(release)": "ruby",
     "rubygems-devel": "ruby-devel",
-    "python3-dbus": "python313-dbus-python",
+    "python3-dbus": "python314-dbus-python",
     "libusb1-devel": "libusb-1_0-devel",
     "libjpeg-turbo-devel": "libjpeg8-devel",
     "glslang": "glslang-devel",
@@ -205,9 +205,9 @@ def suse(name: str) -> str:
     """Translate a Fedora package name to its openSUSE equivalent."""
     if name in SUSE_NAME_MAP:
         return SUSE_NAME_MAP[name]
-    # Tumbleweed's default python3 is 3.13: any python3-<mod> maps to python313-<mod>.
+    # Tumbleweed's default python3 is 3.14: any python3-<mod> maps to python314-<mod>.
     if name.startswith("python3-"):
-        return "python313-" + name[len("python3-"):]
+        return "python314-" + name[len("python3-"):]
     return name
 
 
@@ -573,6 +573,8 @@ def body_gem(m: Package, br: list[str], req: list[str]) -> str:
         "# Create missing files referenced by gemspec",
         "for f in man/*.1 zsh/_*; do [ -f \"$f\" ] || touch \"$f\" 2>/dev/null || :; done",
         "gem build *.gemspec",
+        "# gem_install.sh ищет .gem по шаблону */*.gem от buildsubdir — кладём в подкаталог",
+        "mkdir -p gem-built && mv -- *.gem gem-built/",
         "",
         "%install",
         "%gem_install --no-rdoc --no-ri --symlink-binaries -f",

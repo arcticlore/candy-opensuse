@@ -11,7 +11,7 @@ Source0:        %{name}-%{version}.tar.gz
 %global _unpackaged_files_terminate_build 0
 
 
-BuildRequires:  python313-devel
+BuildRequires:  python314-devel
 BuildRequires:  python-rpm-macros
 
 # NOTE: нужны ffmpeg и portaudio в системе

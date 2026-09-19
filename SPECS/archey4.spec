@@ -11,12 +11,12 @@ Source0:        %{name}-%{version}.tar.gz
 %global _unpackaged_files_terminate_build 0
 
 
-BuildRequires:  python313-devel
+BuildRequires:  python314-devel
 BuildRequires:  python-rpm-macros
-BuildRequires:  python313-dbus-python
-BuildRequires:  python313-distro
-BuildRequires:  python313-netifaces
-BuildRequires:  python313-setproctitle
+BuildRequires:  python314-dbus-python
+BuildRequires:  python314-distro
+BuildRequires:  python314-netifaces
+BuildRequires:  python314-setproctitle
 
 %description
 Arch Linux system information tool (maintained fork)
