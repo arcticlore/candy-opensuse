@@ -427,12 +427,45 @@ def main() -> int:
         md_lines.append("| " + e["name"] + " | " + " | ".join(e["per_chroot"].get(c, "none") for c in CHROOTS) + f" | {e['build_id']} |")
     (out / "opensuse-inventory.md").write_text("\n".join(md_lines) + "\n")
 
+    # Открытые root-cause-деливераблы Phase D.
+    root_causes_report = {
+        "fetched_at": detailed["fetched_at"],
+        "owner": OWNER,
+        "project": args.project,
+        "root_cause_groups": grouped,
+        "root_cause_signatures": {k: v for k, v in ROOT_CAUSES.items()
+                                  if k in uniq_rc},
+    }
+    (out / "opensuse-root-causes.json").write_text(
+        json.dumps(root_causes_report, ensure_ascii=False, indent=2)
+    )
+    rc_md = [
+        f"# Root causes: {OWNER}/{args.project}",
+        "",
+        f"Снят: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(root_causes_report['fetched_at']))}",
+        "",
+        "## Группы root cause (по количеству пакетов)",
+        "",
+        "| root cause | сигнатура | пакетов |",
+        "|------------|-----------|--------|",
+    ]
+    for g in grouped:
+        rc_md.append(f"| `{g['root_cause']}` | {g['signature']} | {g['count']} |")
+    rc_md += ["", "## Пакеты по root cause", ""]
+    for g in grouped:
+        rc_md.append(f"### `{g['root_cause']}` — {g['count']} пакетов")
+        rc_md.append("")
+        rc_md.append(", ".join(f"`{p}`" for p in g["packages"]))
+        rc_md.append("")
+    (out / "opensuse-root-causes.md").write_text("\n".join(rc_md) + "\n")
+
     summary = {k: detailed[k] for k in ("fetched_at", "project", "chroots_declared", "enabled_packages", "counts", "per_chroot_counts", "root_causes")}
     (out / "opensuse-inventory.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2)
     )
 
     print("OK: reports/opensuse-inventory.json + -detailed.json + .md")
+    print("OK: reports/opensuse-root-causes.json + .md")
     print(f"Counts: {counts}")
     return 0
 

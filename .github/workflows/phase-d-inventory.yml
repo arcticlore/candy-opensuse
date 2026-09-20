@@ -39,5 +39,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: phase-d-inventory-${{ github.run_number }}
-          path: reports/opensuse-inventory*.json
+          path: |
+            reports/opensuse-inventory*.json
+            reports/opensuse-inventory.md
+            reports/opensuse-root-causes.json
+            reports/opensuse-root-causes.md
           retention-days: 14
