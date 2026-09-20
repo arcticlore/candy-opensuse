@@ -238,7 +238,7 @@ def classify_builder_log(text: str) -> str:
     if "RPM build errors" in joined:
         return "build-phase-error"
     if any("dnf5 builddep" in l or "builddep failed" in l or "builddep" in l
-           for l in lines) and joined.count("error") > 0:
+           for l in lines) and joined.lower().count("error") > 0:
         return "builddep-timeout"
     if any(l.startswith("error:") for l in lines):
         return "build-phase-error"
