@@ -195,8 +195,11 @@ def _changelog_date() -> str:
     epoch = os.environ.get("SOURCE_DATE_EPOCH")
     if epoch:
         try:
+            epoch_int = int(epoch)
+            if epoch_int < 0:
+                return CHANGELOG_DATE_BASELINE
             return datetime.datetime.fromtimestamp(
-                int(epoch), tz=datetime.timezone.utc
+                epoch_int, tz=datetime.timezone.utc
             ).date().strftime("%a %b %d %Y")
         except (ValueError, OSError, OverflowError):
             pass
