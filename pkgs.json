@@ -2444,7 +2444,7 @@
    "bins": [
     "termshot"
    ],
-   "gpkg": "./cmd",
+   "gpkg": "./cmd/termshot",
    "use": "termshot --out shot.png -- ls -la",
    "prio": 3,
    "topdir": "termshot-0.6.1"
