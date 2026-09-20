@@ -1,29 +1,69 @@
 name: submit to copr (opensuse beta)
+# CONTAINMENT (bp pause-production-submit): автоматический production submit
+# ОТКЛЮЧЁН. schedule-триггер удалён — запуск возможен только вручную через
+# workflow_dispatch и только с явным подтверждением scope.
 on:
-  schedule:
-    - cron: "43 3 * * *"   # 1 раз/сутки (6:43 MSK) — бета, вежливо к общим билдерам COPR
   workflow_dispatch:
     inputs:
-      full_rebuild:
-        description: "Полный ребилд всех пакетов (openSUSE Tumbleweed)"
-        type: boolean
-        default: false
       only:
-        description: "Пилот: только эти пакеты через запятую (пусто = все)"
+        description: "Пакеты через запятую (пилот). Пусто = ЗАПРЕЩЕНО без confirm_full_rebuild."
+        required: false
         type: string
         default: ""
+      full_rebuild:
+        description: "Полный ребилд (--force) ВСЕХ enabled-пакетов. Требует отдельного подтверждения confirm_full_rebuild=true."
+        required: false
+        type: boolean
+        default: false
+      confirm_full_rebuild:
+        description: "ЯВНОЕ ПОДТВЕРЖДЕНИЕ полного/всех-пакетов ребилда. Без true — abort до submit."
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   submit:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     container: fedora:44
+    environment: candy-production
+    concurrency:
+      group: submit-production-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
 
+      - name: Scope check — no implicit bulk submit, force needs explicit confirmation
+        id: scope
+        env:
+          CANDY_ONLY_INPUT: ${{ inputs.only }}
+          FORCE: ${{ inputs.full_rebuild }}
+          CONFIRM_FULL: ${{ inputs.confirm_full_rebuild }}
+        run: |
+          set -euo pipefail
+          # 1) Пустой only НЕ означает «все пакеты». Нужно явное подтверждение.
+          if [ -z "$CANDY_ONLY_INPUT" ]; then
+            if [ "$CONFIRM_FULL" != "true" ]; then
+              echo "ABORT: пустой 'only' не означает все пакеты; подтверди полный ребилд (confirm_full_rebuild=true)" >&2
+              exit 1
+            fi
+            echo "SCOPE: ALL enabled packages (explicitly confirmed)"
+          else
+            echo "SCOPE: pilot subset only=[$CANDY_ONLY_INPUT]"
+          fi
+          # 2) --force требует отдельного явного подтверждения.
+          if [ "$FORCE" = "true" ] && [ "$CONFIRM_FULL" != "true" ]; then
+            echo "ABORT: full_rebuild=true требует confirm_full_rebuild=true" >&2
+            exit 1
+          fi
+          FORCE_FLAG=""
+          [ "$FORCE" = "true" ] && FORCE_FLAG="--force"
+          echo "force_flag=$FORCE_FLAG" >> "$GITHUB_OUTPUT"
+          echo "SCOPE_OK"
       - name: Install toolchain
         run: |
           mkdir -p logs
@@ -104,10 +144,19 @@ jobs:
       # NOTE: dnf builddep guard (bin/check-deps.sh) is Fedora-only and is
       # intentionally skipped in this openSUSE beta repo.
 
-      - name: Submit to COPR (dedup with version comparison)
+      - name: Submit to COPR (dedup with version comparison, allowlist-guarded)
         env:
           CANDY_ONLY: ${{ inputs.only }}
-        run: python3 bin/coprase-status.py submit ${{ inputs.full_rebuild == true && '--force' || '' }} 2>&1 | tee logs/submit.log
+          PROJECT_ALLOWLIST: arcticlore/candy-opensuse-beta
+        run: |
+          set -euo pipefail
+          # Allowlist: единственный допустимый production-проект.
+          if [ -n "${COPR_PROJECT:-}" ] && [ "$COPR_PROJECT" != "$PROJECT_ALLOWLIST" ]; then
+            echo "ABORT: COPR_PROJECT=$COPR_PROJECT вне allowlist ($PROJECT_ALLOWLIST)" >&2
+            exit 1
+          fi
+          FORCE_FLAG="${{ steps.scope.outputs.force_flag }}"
+          python3 bin/coprase-status.py submit ${FORCE_FLAG} 2>&1 | tee logs/submit.log
 
       # NOTE: auto-triage is Fedora-specific (hardcoded Fedora chroots and the
       # arcticlore/candy project) — disabled in the openSUSE beta for now.
@@ -121,35 +170,31 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bin/auto-issue.sh || true
 
-      - name: Commit state
-        if: always()
+      - name: Commit state via bot branch + reviewable PR (no direct push to master)
+        if: success()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd "$GITHUB_WORKSPACE" 2>/dev/null || cd "$(pwd)" || exit 0
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           git config --global --add safe.directory "$GITHUB_WORKSPACE" 2>/dev/null || true
-          echo "=== Commit state step ==="
-          if [ ! -d ".git" ]; then
-            echo "нет .git — поднимаю репозиторий и сохраняю локальные изменения"
-            git init -q
-            git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-            git -c protocol.version=2 fetch -q --depth=50 origin master
-            git reset --mixed FETCH_HEAD 2>&1 | tail -2 || true
-            git checkout -qb master 2>/dev/null || true
-            echo "=== Коммит локальных изменений (state.json) ==="
-          fi
           git config user.name "candy-bot"
           git config user.email "candy-bot@users.noreply.github.com"
           git add state/state.json pkgs.json SPECS/ 2>&1 || true
           echo "Files staged:"
           git diff --cached --stat || true
-          if ! git diff --cached --quiet; then
-            git commit -qm "submit sync [skip ci]" || echo "Commit failed"
-            git push origin HEAD:master 2>&1 || echo "Push failed (non-critical)"
-          else
+          if git diff --cached --quiet; then
             echo "No changes to commit"
+            exit 0
           fi
-          echo "=== Commit state done ==="
+          BRANCH="candy-bot/submit-sync-${GITHUB_RUN_ID}"
+          git checkout -qb "$BRANCH" 2>/dev/null || git switch -c "$BRANCH"
+          git commit -qm "submit sync: state/version targets regenerated [skip ci]"
+          git push origin "HEAD:$BRANCH" 2>&1 | tail -3
+          gh pr create --base master --head "$BRANCH" \
+            --title "submit sync: state targets regenerated" \
+            --body "Autogenerated sync of state.json/SPECS from a production submit run. Reviewable PR — no direct push to master." \
+            2>&1 | tail -2 || echo "PR create failed (non-critical)"
 
       - name: Telegram notification
         if: always()
