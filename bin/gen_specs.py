@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass, field
@@ -176,6 +177,30 @@ def make_meta(pkgs: PkgsFile) -> dict[str, Package]:
 def esc(s: str) -> str:
     """Escape string for spec (currently passthrough)."""
     return s
+
+
+# Baseline date for generated %changelog entries. Keep it aligned with the
+# date stamped in already-committed SPECs so regeneration stays a no-op.
+CHANGELOG_DATE_BASELINE = "Sat Sep 19 2026"
+
+
+def _changelog_date() -> str:
+    """Return a deterministic %changelog date for generated specs.
+
+    Uses SOURCE_DATE_EPOCH (the reproducible-builds standard) when set, so
+    builds can pin a concrete timestamp; otherwise falls back to a fixed
+    baseline. Never uses today's wall-clock date, otherwise regenerating on a
+    later UTC day would rewrite every SPEC's %changelog and break idempotency.
+    """
+    epoch = os.environ.get("SOURCE_DATE_EPOCH")
+    if epoch:
+        try:
+            return datetime.datetime.fromtimestamp(
+                int(epoch), tz=datetime.timezone.utc
+            ).date().strftime("%a %b %d %Y")
+        except (ValueError, OSError, OverflowError):
+            pass
+    return CHANGELOG_DATE_BASELINE
 
 
 def esc_pct(s: str) -> str:
@@ -824,9 +849,12 @@ def render(name: str, ver: str, meta: dict[str, Package]) -> str:
 
     desc = m.summary or name
     note = m.note
-    today = (
-        datetime.datetime.now(tz=datetime.timezone.utc).date().strftime("%a %b %d %Y")
-    )
+    # Deterministic %changelog date: prefers SOURCE_DATE_EPOCH (reproducible
+    # builds) and otherwise falls back to a FIXED baseline. Using the wall-clock
+    # date here breaks idempotency across day boundaries (regenerating specs on
+    # the next UTC day rewrites every %changelog line). SOURCE_DATE_EPOCH is the
+    # standard knob rpmbuild already honours for reproducible timestamps.
+    today = _changelog_date()
 
     # License installation
     lic_inst = (
