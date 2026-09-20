@@ -30,7 +30,7 @@ PROJECT = "candy-opensuse-beta"
 API = "https://copr.fedorainfracloud.org/api_3"
 DL = "https://download.copr.fedorainfracloud.org/results"
 PAGE_LIMIT = 100
-CHROOTS = ("opensuse-tumbleweed-x86_64", "opensuse-tumbleweed-aarch64")
+CHROOTS = tuple(json.loads(Path("pkgs.json").read_text())["project"]["chroots"])
 LOG_DIR = Path("logs/builder-baseline")
 
 

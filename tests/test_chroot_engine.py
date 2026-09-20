@@ -69,15 +69,19 @@ class TestChrootEngine:
             assert "done" in data
 
     def test_chroots_count(self, pkgs_json):
-        """2 чрута в конфигурации (openSUSE Tumbleweed x86_64/aarch64)"""
+        """4 чрута в конфигурации (Tumbleweed + Leap 16.0, x86_64 + aarch64)"""
         chroots = pkgs_json.get("project", {}).get("chroots", [])
-        assert len(chroots) == 2
+        assert len(chroots) == 4
 
     def test_chroots_format(self, pkgs_json):
-        """Чруты в правильном формате opensuse-tumbleweed-arch"""
+        """Чруты в правильном формате opensuse-{tumbleweed,leap-16.0}-arch"""
         chroots = pkgs_json.get("project", {}).get("chroots", [])
-        for c in chroots:
-            assert c.startswith("opensuse-tumbleweed-"), f"Неверный формат чрута: {c}"
+        assert set(chroots) == {
+            "opensuse-tumbleweed-x86_64",
+            "opensuse-tumbleweed-aarch64",
+            "opensuse-leap-16.0-x86_64",
+            "opensuse-leap-16.0-aarch64",
+        }, f"Матрица чрутов отличается от обязательной: {chroots}"
 
     def test_stuck_hours_env(self, monkeypatch):
         """STUCK_HOURS читается из переменной окружения"""

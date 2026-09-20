@@ -3,23 +3,30 @@ on:
   workflow_dispatch:
     inputs:
       pkgs:
-        description: "Пилотные пакеты через запятую (например tealdeer,broot,dua)"
+        description: "Пилотные пакеты через запятую (например tealdeer,broot,dua). Неизвестное имя = failure."
         required: false
         type: string
         default: "archey4,colorls,tealdeer"
-  push:
-    branches: ["ci/pilot/**"]
+      resume_build:
+        description: "Опционально: продолжить наблюдение по существующему build id без повторного submit"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
+concurrency:
+  group: pilot-build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 300
     container: fedora:44
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
 
       - name: Install toolchain
         run: |
@@ -27,46 +34,110 @@ jobs:
             golang nodejs24 nodejs24-npm-bin copr-cli > /dev/null 2>&1 \
             || dnf install -y jq git rpm-build rpmdevtools python3 cargo rust copr-cli
 
-      - name: Configure COPR
-        run: |
-          mkdir -p ~/.config
-          echo "${{ secrets.COPR_CONFIG }}" > ~/.config/copr
-          chmod 600 ~/.config/copr
-
-      - name: Build SRPMs and submit (pilot project)
+      - name: Build SRPMs, submit, capture build ids (COPR secret via env, config 0600 + trap)
         id: pilot
         env:
           COPR_PROJECT: arcticlore/candy-opensuse-pilot
           PKGS: ${{ inputs.pkgs || 'archey4,colorls,tealdeer' }}
+          RESUME_BUILD: ${{ inputs.resume_build }}
+          COPR_CONFIG_SECRET: ${{ secrets.COPR_CONFIG }}
         run: |
+          set -o pipefail
           mkdir -p logs
-          for name in $(echo "$PKGS" | tr ',' ' '); do
+
+          write_copr_config() {
+            local conf
+            conf="$RUNNER_TEMP/copr-pilot.conf"
+            umask 077
+            printf '%s\n' "${COPR_CONFIG_SECRET}" > "$conf"
+            chmod 600 "$conf"
+            printf '%s' "$conf"
+          }
+
+          CONF=""
+          if [ -n "$RESUME_BUILD" ]; then
+            echo "  [RESUME] продолжаю наблюдение по build id $RESUME_BUILD (submit не выполняется)"
+            echo "build_ids=$RESUME_BUILD" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Основной shell шага: единственный источник правды для cleanup.
+          CONF="$(write_copr_config)"
+          trap 'rm -f "$CONF"' EXIT
+          trap 'trap - EXIT; rm -f "$CONF"; exit 130' HUP INT TERM
+          [ -n "$CONF" ] && echo "COPR config: $CONF (mode $(stat -c '%a' "$CONF"))"
+          echo "secret_interpolated_in_shell=false"
+
+          BUILD_IDS=""
+          for name in $(printf '%s' "$PKGS" | tr ',' ' '); do
             name=$(echo "$name" | xargs)
             [ -z "$name" ] && continue
             echo "== $name =="
+
             if ! jq -e --arg n "$name" '.packages[] | select(.name==$n) | .eco' pkgs.json > /dev/null 2>&1; then
-              echo "  [SKIP] $name: не найден в pkgs.json"
-              continue
+              echo "  [FAIL] $name: не найден в pkgs.json (неизвестное имя = failure, не SKIP)"
+              exit 1
             fi
+
+            # stale-SRPM: удаляем старый — submit только из свежего результата make-srpm.
+            rm -f SRPMS/${name}-*.src.rpm
             if ! bin/make-srpm.sh "$name" > "logs/srpm-$name.log" 2>&1; then
-              echo "  [FAIL] $name: make-srpm rc=$? — хвост лога:"
+              rc=$?
+              echo "  [FAIL] $name: make-srpm rc=$rc — хвост лога:"
               tail -12 "logs/srpm-$name.log" | sed 's/^/    /'
-              continue
+              exit 1
             fi
+
             srpm=$(ls SRPMS/${name}-*.src.rpm 2>/dev/null | head -1)
-            [ -z "$srpm" ] && { echo "  [FAIL] $name: SRPM не найден"; continue; }
+            [ -z "$srpm" ] && { echo "  [FAIL] $name: SRPM не найден"; exit 1; }
+
             echo "  [SUBMIT] $srpm -> $COPR_PROJECT"
-            if copr-cli build --nowait "$COPR_PROJECT" "$srpm" > "logs/copr-$name.log" 2>&1; then
-              echo "  [OK] $name (build #$(grep -oE 'id [0-9]+' "logs/copr-$name.log" | head -1))"
-            else
+            if ! copr-cli --config "$CONF" build --nowait "$COPR_PROJECT" "$srpm" > "logs/copr-$name.log" 2>&1; then
               echo "  [FAIL] $name: copr-cli rc=$? — хвост лога:"
               tail -12 "logs/copr-$name.log" | sed 's/^/    /'
+              exit 1
             fi
+            build_id=$(python3 bin/copr_waiter.py print-build-ids "logs/copr-$name.log")
+            if [ -z "$build_id" ]; then
+              echo "  [FAIL] $name: не удалось извлечь numeric build id из вывода copr-cli"
+              sed 's/^/    /' "logs/copr-$name.log"
+              exit 1
+            fi
+            echo "  [BUILD_ID] $name => $build_id"
+            BUILD_IDS="$BUILD_IDS $build_id"
           done
+          BUILD_IDS=$(echo "$BUILD_IDS" | xargs)
+          [ -n "$BUILD_IDS" ] || { echo "  [FAIL] нет build ids — ничего не сублимировано"; exit 1; }
+          echo "build_ids=$BUILD_IDS" >> "$GITHUB_OUTPUT"
+        # trap EXIT гарантирует удаление CONF при success/failure/cancel (TERM/INT).
+
+      - name: Wait for terminal 4/4 result (all four chroots, tolerant waiter)
+        if: steps.pilot.outputs.build_ids != ''
+        timeout-minutes: 240
+        env:
+          COPR_API_TOKEN: ${{ secrets.COPR_API_TOKEN }}
+          PKGS_JSON: pkgs.json
+        run: |
+          set -euo pipefail
+          total_rc=0
+          for bid in ${{ steps.pilot.outputs.build_ids }}; do
+            echo "=== waiting build $bid ==="
+            rc=0
+            python3 bin/copr_waiter.py watch --build-id "$bid" --pkgs-json "$PKGS_JSON" \
+              --timeout-min 180 --interval 60 || rc=$?
+            echo "  waiter rc=$rc for build $bid"
+            [ "$rc" -ne 0 ] && total_rc=$rc
+          done
+          if [ "$total_rc" -ne 0 ]; then
+            echo "FAIL: не все пилотные сборки закончены 4/4 succeeded"
+          else
+            echo "OK: все пилотные сборки 4/4 succeeded"
+          fi
+          exit "$total_rc"
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: pilot-logs-${{ github.run_number }}
           path: logs/

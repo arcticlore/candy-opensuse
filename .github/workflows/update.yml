@@ -17,29 +17,12 @@ permissions:
   contents: write
 
 jobs:
-  guard:
-    runs-on: ubuntu-latest
-    outputs:
-      off: ${{ steps.check.outputs.off }}
-    steps:
-      - uses: actions/checkout@v5
-      - id: check
-        run: |
-          if [ -f AZ5 ]; then
-            echo "АЗ-5: проект остановлен — submit пропущен"
-            echo "off=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "off=false" >> "$GITHUB_OUTPUT"
-          fi
-
   submit:
-    needs: guard
-    if: needs.guard.outputs.off == 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     container: fedora:44
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
 
       - name: Install toolchain
         run: |
@@ -66,7 +49,7 @@ jobs:
         run: python3 bin/coprase-status.py versions 2>&1 | tee logs/versions.log
 
       - name: Restore SRPM cache
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
         with:
           path: |
             SRPMS/
@@ -186,7 +169,7 @@ jobs:
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: submit-logs-${{ github.run_number }}
           path: logs/

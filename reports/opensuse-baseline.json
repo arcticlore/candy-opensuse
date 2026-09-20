@@ -1,811 +1,169 @@
 {
-  "fetched_at": 1789826760,
-  "owner": "arcticlore",
-  "project": "candy-opensuse-beta",
-  "chroots_declared": [
-    "opensuse-tumbleweed-x86_64",
-    "opensuse-tumbleweed-aarch64"
-  ],
-  "chroot_usage_in_builds": {
-    "opensuse-tumbleweed-x86_64": 273,
-    "opensuse-tumbleweed-aarch64": 273,
-    "opensuse-leap-16.0-x86_64": 143,
-    "opensuse-leap-16.0-aarch64": 143
-  },
-  "leap_chroot_builds": 143,
-  "counts": {
-    "enabled_in_pkgs_json": 128,
-    "with_builds_in_copr": 123,
-    "missing_from_copr": 5,
-    "latest_succeeded": 54,
-    "latest_failed": 69,
-    "ever_succeeded": 57,
-    "never_succeeded": 71
-  },
-  "missing_packages": [
-    "fend",
-    "pure",
-    "tabiew",
-    "wtfutil",
-    "zenith"
-  ],
-  "failure_reasons": {
-    "build-phase-error": 65,
-    "builddep-unresolved": 4
-  },
-  "unresolved_buildrequires": {
-    "glslang": 1,
-    "python3-dbus": 1,
-    "libusb1-devel": 1,
-    "libjpeg-turbo-devel": 1
-  },
-  "failed_builds": [
-    {
-      "name": "CrabFetch",
-      "build_id": 11003636,
-      "version": "0.5.4-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "PyBonsai",
-      "build_id": 11003658,
-      "version": "3.0.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "Rio",
-      "build_id": 11003710,
-      "version": "0.5.28-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "builddep-unresolved",
-        "opensuse-tumbleweed-aarch64": "builddep-unresolved"
-      },
-      "reason": "builddep-unresolved",
-      "missing_br": [
-        "glslang"
-      ]
-    },
-    {
-      "name": "animfetch",
-      "build_id": 11003637,
-      "version": "0.1.6-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "archey4",
-      "build_id": 11003639,
-      "version": "4.15.0.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "builddep-unresolved",
-        "opensuse-tumbleweed-aarch64": "builddep-unresolved"
-      },
-      "reason": "builddep-unresolved",
-      "missing_br": [
-        "python3-dbus"
-      ]
-    },
-    {
-      "name": "artem",
-      "build_id": 11003677,
-      "version": "3.0.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "bacon",
-      "build_id": 11003617,
-      "version": "3.25.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "bandwhich",
-      "build_id": 11003589,
-      "version": "0.23.1-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "bottom",
-      "build_id": 11003590,
-      "version": "0.14.9-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "broot",
-      "build_id": 11003591,
-      "version": "1.60.1-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "cbeams",
-      "build_id": 11003651,
-      "version": "1.0.1-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "choose",
-      "build_id": 11003684,
-      "version": "1.3.7-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "colorls",
-      "build_id": 11003709,
-      "version": "1.5.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "csview",
-      "build_id": 11003592,
-      "version": "1.3.4-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "cyme",
-      "build_id": 11003652,
-      "version": "3.0.2-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "builddep-unresolved",
-        "opensuse-tumbleweed-aarch64": "builddep-unresolved"
-      },
-      "reason": "builddep-unresolved",
-      "missing_br": [
-        "libusb1-devel"
-      ]
-    },
-    {
-      "name": "delta",
-      "build_id": 11003593,
-      "version": "0.19.2-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "dua",
-      "build_id": 11003619,
-      "version": "2.45.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "durdraw",
-      "build_id": 11003679,
-      "version": "0.30.1-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "dysk",
-      "build_id": 11003620,
-      "version": "3.7.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "flavours",
-      "build_id": 11003685,
-      "version": "0.7.1-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "genact",
-      "build_id": 11003653,
-      "version": "1.5.1-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "ghfetch",
-      "build_id": 11003626,
-      "version": "20260919.4b44a4f-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "gitfetch",
-      "build_id": 11003627,
-      "version": "0.1.1-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "gittype",
-      "build_id": 11003703,
-      "version": "0.10.2-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "gitui",
-      "build_id": 11003628,
-      "version": "0.28.1-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "gping",
-      "build_id": 11003594,
-      "version": "1.21.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "grex",
-      "build_id": 11003629,
-      "version": "1.4.6-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "himalaya",
-      "build_id": 11003694,
-      "version": "2.1.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "hyperfine",
-      "build_id": 11003595,
-      "version": "1.20.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "joshuto",
-      "build_id": 11003654,
-      "version": "0.9.9-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "jp2a",
-      "build_id": 11003680,
-      "version": "1.3.3-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "builddep-unresolved",
-        "opensuse-tumbleweed-aarch64": "builddep-unresolved"
-      },
-      "reason": "builddep-unresolved",
-      "missing_br": [
-        "libjpeg-turbo-devel"
-      ]
-    },
-    {
-      "name": "just",
-      "build_id": 11003598,
-      "version": "1.58.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "kondo",
-      "build_id": 11003630,
-      "version": "0.9-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "linuxwave",
-      "build_id": 11003687,
-      "version": "0.4.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "lolcrab",
-      "build_id": 11003655,
-      "version": "0.4.1-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "macchina",
-      "build_id": 11003631,
-      "version": "6.4.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "maze",
-      "build_id": 11003672,
-      "version": "20260919.eb99e65-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "mise",
-      "build_id": 11003599,
-      "version": "2026.9.11-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "navi",
-      "build_id": 11003632,
-      "version": "2.24.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "oha",
-      "build_id": 11003603,
-      "version": "1.16.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "onefetch",
-      "build_id": 11003633,
-      "version": "2.28.1-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "pipes.rs",
-      "build_id": 11003656,
-      "version": "1.6.4-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "pokemon-icat",
-      "build_id": 11003634,
-      "version": "20260919.54d4bc5-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "presenterm",
-      "build_id": 11003635,
-      "version": "0.16.1-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "pridefetch",
-      "build_id": 11003640,
-      "version": "20260919.dc24d03-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "pywal",
-      "build_id": 11003689,
-      "version": "3.8.15-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "rmpc",
-      "build_id": 11003704,
-      "version": "0.11.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "sd",
-      "build_id": 11003606,
-      "version": "1.1.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "snowmachine",
-      "build_id": 11003657,
-      "version": "2.0.2-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "starship",
-      "build_id": 11003611,
-      "version": "1.26.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "systeroid",
-      "build_id": 11003705,
-      "version": "0.4.6-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "tealdeer",
-      "build_id": 11003612,
-      "version": "1.9.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "terminaltexteffects",
-      "build_id": 11003659,
-      "version": "0.15.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "termshot",
-      "build_id": 11003646,
-      "version": "0.6.1-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "termusic",
-      "build_id": 11003700,
-      "version": "0.13.2-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "toipe",
-      "build_id": 11003647,
-      "version": "0.5.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "tokei",
-      "build_id": 11003613,
-      "version": "15.0.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "trippy",
-      "build_id": 11003585,
-      "version": "0.13.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "ttyper",
-      "build_id": 11003666,
-      "version": "1.6.0-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "ttysvr",
-      "build_id": 11003650,
-      "version": "0.3.4-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "unimatrix",
-      "build_id": 11003676,
-      "version": "20260919.dff519f-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "viddy",
-      "build_id": 11003614,
-      "version": "1.3.1-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "video-to-ascii",
-      "build_id": 11003693,
-      "version": "1.3.1-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "viu",
-      "build_id": 11003681,
-      "version": "1.6.1-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "wallust",
-      "build_id": 11003691,
-      "version": "4.1.0~alpha-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "watchexec",
-      "build_id": 11003586,
-      "version": "2.7.3-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "xh",
-      "build_id": 11003616,
-      "version": "0.26.2-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "yazi",
-      "build_id": 11003588,
-      "version": "26.8.15-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
-    },
-    {
-      "name": "zellij",
-      "build_id": 11003706,
-      "version": "0.45.1-1",
-      "chroot_logs": {
-        "opensuse-tumbleweed-x86_64": "build-phase-error",
-        "opensuse-tumbleweed-aarch64": "build-phase-error"
-      },
-      "reason": "build-phase-error",
-      "missing_br": []
+  "schema_version": 4,
+  "generated_at": "2026-09-20T00:05:00Z",
+  "source": {
+    "github": "https://github.com/arcticlore/candy-opensuse-beta",
+    "production_copr": {
+      "name": "arcticlore/candy-opensuse-beta",
+      "url": "https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse-beta/"
+    },
+    "pilot_copr": {
+      "name": "arcticlore/candy-opensuse-pilot",
+      "url": "https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse-pilot/"
     }
-  ]
+  },
+  "working_head": {
+    "branch": "fix/opensuse-four-chroot-remediation",
+    "commit": "be06a4f",
+    "note": "Состояние ПОСЛЕ Phase B (pkgs.json уже объявляет 4 чрута; pilot COPR расширен; enable_net pilot выключен)."
+  },
+  "state_before_phase_b": {
+    "repo_declared_chroots": [
+      "opensuse-tumbleweed-x86_64",
+      "opensuse-tumbleweed-aarch64"
+    ],
+    "branch": "master",
+    "commit": "ef0cba0301442b5f579eafff13fa8925b3e2b184",
+    "note": "Состояние на момент первого снимка (audit 2026-09-19)."
+  },
+  "github": {
+    "reported_default_branch": "master",
+    "branch_main_exists": false,
+    "branch_master_sha": "ef0cba0301442b5f579eafff13fa8925b3e2b184",
+    "working_branch_sha": "be06a4f",
+    "intended_working_base": "master",
+    "note": "Заявленный drift 'API сообщает default_branch=main' НЕ воспроизводится: git HEAD, gh repo view и raw API дают master; ветки main не существует. Настройка default branch не менялась."
+  },
+  "chroots": {
+    "required": [
+      "opensuse-tumbleweed-x86_64",
+      "opensuse-tumbleweed-aarch64",
+      "opensuse-leap-16.0-x86_64",
+      "opensuse-leap-16.0-aarch64"
+    ],
+    "repo_declared_after_phase_b": [
+      "opensuse-tumbleweed-x86_64",
+      "opensuse-tumbleweed-aarch64",
+      "opensuse-leap-16.0-x86_64",
+      "opensuse-leap-16.0-aarch64"
+    ],
+    "repo_declared_before_phase_b": [
+      "opensuse-tumbleweed-x86_64",
+      "opensuse-tumbleweed-aarch64"
+    ],
+    "production_active": [
+      "opensuse-tumbleweed-x86_64",
+      "opensuse-tumbleweed-aarch64",
+      "opensuse-leap-16.0-x86_64",
+      "opensuse-leap-16.0-aarch64"
+    ],
+    "pilot_active_after_phase_b": [
+      "opensuse-tumbleweed-x86_64",
+      "opensuse-tumbleweed-aarch64",
+      "opensuse-leap-16.0-x86_64",
+      "opensuse-leap-16.0-aarch64"
+    ],
+    "pilot_active_before_phase_b": [
+      "opensuse-tumbleweed-x86_64",
+      "opensuse-tumbleweed-aarch64"
+    ]
+  },
+  "enable_net": {
+    "production": false,
+    "pilot": false,
+    "pilot_note": "было True до Phase B; переключено на False."
+  },
+  "packages": {
+    "enabled": 128,
+    "disabled": 19,
+    "total": 147
+  },
+  "monitor_packages": 123,
+  "invariants": {
+    "enabled_packages": 128,
+    "each_chroot_total_is_128": true,
+    "matrix_total": 512
+  },
+  "raw_build_object_counts": {
+    "failed": 205,
+    "succeeded": 68
+  },
+  "queued_running_counts": {
+    "production": {"queued": 0, "running": 0},
+    "pilot": {"queued": 0, "running": 0},
+    "fetched_at": "2026-09-20T00:05:00Z"
+  },
+  "probe": {
+    "branch": "probe/opensuse-intel",
+    "head_sha": "b767c3142c42a494735bdf6bc96c1dd87f4ad8a5",
+    "master_ahead": 5,
+    "probe_ahead": 3,
+    "merge_base": "d69ef5b5bcfdb46b111df0f6fc084a4695c7b924",
+    "policy": "не merge/не cherry-pick; только knowledge; архив и удаление только с approval владельца"
+  },
+  "az5": {
+    "status": "decommissioned",
+    "note": "2026-09-20: AZ5 stop-file, gates в update.yml/logrotate.yml, docs и refs удалены полностью; рабочая ветка fix/opensuse-four-chroot-remediation. См. commit decommission AZ-5."
+  },
+  "matrix_128_canonical": {
+    "opensuse-tumbleweed-x86_64": {
+      "succeeded": 57,
+      "failed": 66,
+      "none": 0,
+      "missing": 5,
+      "total": 128
+    },
+    "opensuse-tumbleweed-aarch64": {
+      "succeeded": 57,
+      "failed": 66,
+      "none": 0,
+      "missing": 5,
+      "total": 128
+    },
+    "opensuse-leap-16.0-x86_64": {
+      "succeeded": 9,
+      "failed": 69,
+      "none": 45,
+      "missing": 5,
+      "total": 128
+    },
+    "opensuse-leap-16.0-aarch64": {
+      "succeeded": 9,
+      "failed": 69,
+      "none": 45,
+      "missing": 5,
+      "total": 128
+    }
+  },
+  "latest_package_x_chroot_raw_monitor": {
+    "opensuse-tumbleweed-x86_64": {
+      "succeeded": 57,
+      "failed": 66,
+      "none": 0,
+      "missing": 5
+    },
+    "opensuse-tumbleweed-aarch64": {
+      "succeeded": 57,
+      "failed": 66,
+      "none": 0,
+      "missing": 5
+    },
+    "opensuse-leap-16.0-x86_64": {
+      "succeeded": 9,
+      "failed": 69,
+      "none": 45,
+      "missing": 5
+    },
+    "opensuse-leap-16.0-aarch64": {
+      "succeeded": 9,
+      "failed": 69,
+      "none": 45,
+      "missing": 5
+    }
+  },
+  "glossary": {
+    "none": "пакет существует у COPR-проекта и имеет сборки в других chroot, но для этого chroot результата нет",
+    "missing": "пакет вообще отсутствует в monitor/builds (пять: fend, pure, tabiew, wtfutil, zenith)"
+  },
+  "phase_b_note": "2026-09-20: pilot COPR расширен до 4 обязательных chroot; enable_net pilot True->False."
 }
