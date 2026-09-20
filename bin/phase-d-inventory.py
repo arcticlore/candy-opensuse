@@ -204,6 +204,99 @@ def summarize_counts(entries: list[dict]) -> dict[str, int]:
     return dict(Counter(e["status"] for e in entries))
 
 
+ROOT_CAUSES = {
+    "builddep-unresolved": "No match for argument / Failed to resolve transaction (missing BuildRequire)",
+    "builddep-timeout": "builddep stuck/timeout, network/dead queue",
+    "build-phase-error": "failure inside %build/%install (compile/test/install)",
+    "macro-undef": "gen_specs emitted an unavailable %macro (rpm -E == literal)",
+    "source-download": "Source tarball/vendor download failed",
+    "rpmbuild-fail": "rpmbuild aborted before build phase",
+    "log-missing": "builder log unavailable (404/network)",
+    "other": "unrecognized failure signature",
+}
+
+
+def classify_builder_log(text: str) -> str:
+    """Классификация одного builder-live.log по сигнатурам причин.
+
+    Порядок проверок важен: 'No match' раньше общего ERROR, и т.д.
+    """
+    if not text:
+        return "log-missing"
+    lines = text.splitlines()
+    joined = text
+    if "No match for argument" in joined:
+        return "builddep-unresolved"
+    if "Failed to resolve the transaction" in joined:
+        return "builddep-unresolved"
+    if "Cannot download" in joined or "Failed to download" in joined:
+        return "source-download"
+    if "rpmbuild" in joined and "error" in joined.lower() and "%build" in joined:
+        return "rpmbuild-fail"
+    if any("Error" in l and "in %" in l for l in lines):
+        return "build-phase-error"
+    if "RPM build errors" in joined:
+        return "build-phase-error"
+    if any("dnf5 builddep" in l or "builddep failed" in l or "builddep" in l
+           for l in lines) and joined.count("error") > 0:
+        return "builddep-timeout"
+    if any(l.startswith("error:") for l in lines):
+        return "build-phase-error"
+    if "ERROR" in joined:
+        return "build-phase-error"
+    return "other"
+
+
+def missing_buildrequires(text: str) -> list[str]:
+    """Незарезолвленные BuildRequires из «No match for argument: X»."""
+    out = []
+    if not text:
+        return out
+    for l in text.splitlines():
+        if "No match for argument" in l:
+            arg = l.split("No match for argument:", 1)[1].strip()
+            if arg and arg not in out:
+                out.append(arg)
+    return out
+
+
+def download_builder_log(project: str, build_id: int, name: str,
+                         chroot: str, cache: Path) -> str | None:
+    import gzip
+
+    cache.mkdir(parents=True, exist_ok=True)
+    safe = chroot.replace("/", "_")
+    lookup = cache / f"{build_id}-{name}-{safe}.log"
+    if lookup.exists():
+        return lookup.read_text(errors="replace")
+    url = (f"https://download.copr.fedorainfracloud.org/results"
+           f"/{OWNER}/{project}/{chroot}/{build_id}-{name}/builder-live.log.gz")
+    try:
+        last_err = None
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                req = urllib.request.Request(url)
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    raw = resp.read()
+                break
+            except (urllib.error.URLError, urllib.error.HTTPError) as exc:
+                if isinstance(exc, urllib.error.HTTPError) and exc.code == 404:
+                    return None
+                last_err = exc
+                time.sleep(RETRY_BACKOFF * (2 ** attempt))
+                continue
+        else:
+            raise last_err
+    except Exception:
+        return None
+    try:
+        text = gzip.decompress(raw).decode("utf-8", errors="replace")
+    except (gzip.BadGzipFile, OSError):
+        text = raw.decode("utf-8", errors="replace")
+    lookup.write_text(text, errors="replace")
+    return text
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--project", default=os.environ.get("COPR_PROJECT", "candy-opensuse-beta"))
@@ -257,7 +350,48 @@ def main() -> int:
         }
         entries.append(entry)
 
+    # Шаг 3: для failed/mixed — классифицируем root cause по логам каждого
+    # failed chroot. Ошибка скачивания лога не роняет inventory: это поле
+    # остаётся 'log-missing', но exit-код остаётся 0 только если API был жив.
+    log_cache = ROOT / "logs" / "phase-d"
+    failed_entries = [e for e in entries if e["status"] in ("failed", "mixed")]
+    for e in failed_entries:
+        bid = e["build_id"]
+        for chroot, st in e["per_chroot"].items():
+            if st != "failed" or not bid:
+                continue
+            text = download_builder_log(args.project, bid, e["name"], chroot,
+                                        log_cache)
+            cause = classify_builder_log(text or "")
+            e.setdefault("root_causes", {})[chroot] = {
+                "cause": cause,
+                "signature": ROOT_CAUSES.get(cause, cause),
+                "missing_buildrequires": missing_buildrequires(text or ""),
+            }
+        if "root_causes" not in e:
+            e["root_causes"] = {}
+
     counts = summarize_counts(entries)
+
+    # Группировка по сигнатурам root cause (между пакетами).
+    causes: dict[str, list[str]] = {}
+    for e in failed_entries:
+        for rc in (e.get("root_causes") or {}).values():
+            causes.setdefault(rc["cause"], []).append(e["name"])
+    grouped = sorted(
+        ({"root_cause": k,
+          "signature": ROOT_CAUSES.get(k, k),
+          "packages": sorted(set(v)),
+          "count": len(set(v))} for k, v in causes.items()),
+        key=lambda x: -x["count"],
+    )
+
+    uniq_rc = sorted({r["cause"] for e in failed_entries
+                      for r in (e.get("root_causes") or {}).values()})
+    per_chroot_counts: dict[str, dict[str, int]] = {}
+    for c in CHROOTS:
+        per_chroot_counts[c] = dict(Counter(e["per_chroot"].get(c, "none")
+                                            for e in entries))
     detailed = {
         "fetched_at": int(time.time()),
         "owner": OWNER,
@@ -265,6 +399,9 @@ def main() -> int:
         "chroots_declared": list(CHROOTS),
         "enabled_packages": len(entries),
         "counts": counts,
+        "per_chroot_counts": per_chroot_counts,
+        "root_causes": uniq_rc,
+        "root_cause_groups": grouped,
         "packages": entries,
     }
     (out / "opensuse-inventory-detailed.json").write_text(
@@ -283,12 +420,15 @@ def main() -> int:
     ]
     for status, cnt in sorted(counts.items(), key=lambda x: -x[1]):
         md_lines.append(f"- `{status}`: **{cnt}**")
+    md_lines += ["", "## Root-cause группы (failed/mixed)", "", "| root cause | пакетов | пакеты |", "|------------|--------|--------|"]
+    for g in grouped:
+        md_lines.append(f"| `{g['root_cause']}` | {g['count']} | {', '.join(g['packages'])} |")
     md_lines += ["", "## Пер-chroot", "", "| пакет | " + " | ".join(CHROOTS) + " | build |", "|-------|" + "|".join(["---"] * len(CHROOTS)) + "|-------|"]
     for e in sorted(entries, key=lambda x: x["name"]):
         md_lines.append("| " + e["name"] + " | " + " | ".join(e["per_chroot"].get(c, "none") for c in CHROOTS) + f" | {e['build_id']} |")
     (out / "opensuse-inventory.md").write_text("\n".join(md_lines) + "\n")
 
-    summary = {k: detailed[k] for k in ("fetched_at", "project", "chroots_declared", "enabled_packages", "counts")}
+    summary = {k: detailed[k] for k in ("fetched_at", "project", "chroots_declared", "enabled_packages", "counts", "per_chroot_counts", "root_causes")}
     (out / "opensuse-inventory.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2)
     )

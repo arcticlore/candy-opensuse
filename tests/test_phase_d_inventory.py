@@ -84,3 +84,44 @@ class TestFingerprint:
                "host": "github", "slug": "x/y"}
         fp = mod.package_fingerprint(pkg, "1.0")
         assert fp["spec_sha256"] == "no-spec-in-repo"
+
+
+class TestRootCause:
+    def test_no_match_for_argument(self, mod):
+        text = (
+            "error: some error\n"
+            "No match for argument: go-toolset\n"
+            "[1/1] builddep failed\n"
+        )
+        assert mod.classify_builder_log(text) == "builddep-unresolved"
+        assert mod.missing_buildrequires(text) == ["go-toolset"]
+
+    def test_failed_to_resolve_transaction(self, mod):
+        text = "Failed to resolve the transaction: Nothing provides libfoo"
+        assert mod.classify_builder_log(text) == "builddep-unresolved"
+
+    def test_download_failure(self, mod):
+        text = "Cannot download /path/tarball.gz: Connection refused"
+        assert mod.classify_builder_log(text) == "source-download"
+
+    def test_build_phase_error(self, mod):
+        text = ("Compiling...\ngcc: error: unrecognized argument\n"
+                "RPM build errors:")
+        assert mod.classify_builder_log(text) == "build-phase-error"
+
+    def test_empty_log_is_missing(self, mod):
+        assert mod.classify_builder_log("") == "log-missing"
+
+    def test_other_unrecognized(self, mod):
+        assert mod.classify_builder_log("weird opaque output") == "other"
+
+    def test_builddep_not_error_is_other(self, mod):
+        # «builddep» упоминается, но без error-окружения — не таймаут
+        text = "Running dnf5 builddep with resolved packages"
+        assert mod.classify_builder_log(text) == "other"
+
+    def test_builddep_timeout_with_errors(self, mod):
+        text = ("dnf5 builddep\n\n"
+                "Debug: connection timeout\n"
+                "Error: failed to download")
+        assert mod.classify_builder_log(text) == "builddep-timeout"
