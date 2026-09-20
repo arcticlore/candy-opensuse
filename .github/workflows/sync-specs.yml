@@ -33,7 +33,10 @@ jobs:
 
       - name: Commit regenerated SPECS (bot branch + PR for master, direct push only to ci/**)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # CANDY_BOT_TOKEN (fine-grained PAT) при наличии даёт CI без ручного
+          # approve на bot-PR; fallback GITHUB_TOKEN создаёт checks в
+          # approval-required состоянии.
+          GH_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
           TARGET_REF: ${{ inputs.ref || github.ref_name }}
         run: |
           git config user.name "candy-bot"
@@ -44,11 +47,12 @@ jobs:
           fi
           git add SPECS/
           git diff --cached --stat | tail -5
-          git commit -qm "regen: synchronize SPECS/ with gen_specs.py [skip ci]"
+          git commit -qm "regen: synchronize SPECS/ with gen_specs.py"
           echo "Pushing to branch: ${TARGET_REF}"
           if [ "$TARGET_REF" = "master" ]; then
             BRANCH="candy-bot/sync-specs-${GITHUB_RUN_ID}"
             git checkout -qb "$BRANCH" 2>/dev/null || git switch -c "$BRANCH"
+            git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
             git push origin "HEAD:$BRANCH" 2>&1 | tail -3
             gh pr create --base master --head "$BRANCH" \
               --title "regen: synchronize SPECS/ with gen_specs.py" \

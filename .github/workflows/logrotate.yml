@@ -23,7 +23,10 @@ jobs:
 
       - name: Commit via bot branch + reviewable PR (no direct push to master)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # CANDY_BOT_TOKEN (fine-grained PAT) при наличии даёт CI без ручного
+          # approve на bot-PR; fallback GITHUB_TOKEN создаёт checks в
+          # approval-required состоянии.
+          GH_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           git config user.name  "candy-bot"
           git config user.email "candy-bot@users.noreply.github.com"
@@ -31,7 +34,8 @@ jobs:
           if ! git diff --cached --quiet; then
             BRANCH="candy-bot/logrotate-${GITHUB_RUN_ID}"
             git checkout -qb "$BRANCH" 2>/dev/null || git switch -c "$BRANCH"
-            git commit -qm "logrotate [skip ci]"
+            git commit -qm "logrotate"
+            git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
             git push origin "HEAD:$BRANCH" 2>&1 | tail -3
             gh pr create --base master --head "$BRANCH" \
               --title "logrotate cleanup" \

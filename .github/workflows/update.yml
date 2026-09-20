@@ -173,7 +173,10 @@ jobs:
       - name: Commit state via bot branch + reviewable PR (no direct push to master)
         if: success()
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # CANDY_BOT_TOKEN (fine-grained PAT) при наличии даёт CI без ручного
+          # approve на bot-PR; fallback GITHUB_TOKEN создаёт checks в
+          # approval-required состоянии (пользователь с write подтверждает).
+          GH_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
@@ -189,7 +192,10 @@ jobs:
           fi
           BRANCH="candy-bot/submit-sync-${GITHUB_RUN_ID}"
           git checkout -qb "$BRANCH" 2>/dev/null || git switch -c "$BRANCH"
-          git commit -qm "submit sync: state/version targets regenerated [skip ci]"
+          git commit -qm "submit sync: state/version targets regenerated"
+          # Единый токен для push и PR: при CANDY_BOT_TOKEN события триггерят CI
+          # без approve; при GITHUB_TOKEN — approval-required (правило GitHub).
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push origin "HEAD:$BRANCH" 2>&1 | tail -3
           gh pr create --base master --head "$BRANCH" \
             --title "submit sync: state targets regenerated" \
