@@ -76,6 +76,42 @@ class TestGenSpecsEdgeCases:
         # Just verify the module loads
         assert mod is not None
 
+    def test_changelog_date_deterministic(self, monkeypatch):
+        """gen_specs changelog date is deterministic, not wall-clock."""
+        from conftest import load_module
+
+        mod = load_module("gen_specs", os.path.join(ROOT, "bin/gen_specs.py"))
+        monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)
+
+        d1 = mod._changelog_date()
+        d2 = mod._changelog_date()
+        assert d1 == d2
+        assert d1 == mod.CHANGELOG_DATE_BASELINE
+
+    def test_changelog_date_honors_source_date_epoch(self, monkeypatch):
+        """SOURCE_DATE_EPOCH pins the changelog date."""
+        from conftest import load_module
+
+        mod = load_module("gen_specs", os.path.join(ROOT, "bin/gen_specs.py"))
+        monkeypatch.setenv("SOURCE_DATE_EPOCH", "1726819200")  # 2024-09-20 00:00 UTC
+        assert mod._changelog_date() == "Fri Sep 20 2024"
+
+    def test_changelog_date_ignores_bad_epoch(self, monkeypatch):
+        """Invalid SOURCE_DATE_EPOCH falls back to baseline."""
+        from conftest import load_module
+
+        mod = load_module("gen_specs", os.path.join(ROOT, "bin/gen_specs.py"))
+        monkeypatch.setenv("SOURCE_DATE_EPOCH", "not-a-number")
+        assert mod._changelog_date() == mod.CHANGELOG_DATE_BASELINE
+
+    def test_changelog_date_ignores_epoch_before_1970(self, monkeypatch):
+        """Negative/pre-epoch SOURCE_DATE_EPOCH falls back to baseline."""
+        from conftest import load_module
+
+        mod = load_module("gen_specs", os.path.join(ROOT, "bin/gen_specs.py"))
+        monkeypatch.setenv("SOURCE_DATE_EPOCH", "-1")
+        assert mod._changelog_date() == mod.CHANGELOG_DATE_BASELINE
+
 
 def load_package_module():
     """Helper to load gen_specs module."""
