@@ -1,0 +1,47 @@
+{
+  "fetched_at": 1789919495,
+  "project": "candy-opensuse-beta",
+  "chroots_declared": [
+    "opensuse-tumbleweed-x86_64",
+    "opensuse-tumbleweed-aarch64",
+    "opensuse-leap-16.0-x86_64",
+    "opensuse-leap-16.0-aarch64"
+  ],
+  "enabled_packages": 128,
+  "counts": {
+    "failed": 69,
+    "mixed": 45,
+    "succeeded": 9,
+    "never-built": 5
+  },
+  "per_chroot_counts": {
+    "opensuse-tumbleweed-x86_64": {
+      "failed": 66,
+      "succeeded": 57,
+      "never-built": 5
+    },
+    "opensuse-tumbleweed-aarch64": {
+      "failed": 66,
+      "succeeded": 57,
+      "never-built": 5
+    },
+    "opensuse-leap-16.0-x86_64": {
+      "failed": 69,
+      "none": 45,
+      "succeeded": 9,
+      "never-built": 5
+    },
+    "opensuse-leap-16.0-aarch64": {
+      "failed": 69,
+      "none": 45,
+      "succeeded": 9,
+      "never-built": 5
+    }
+  },
+  "root_causes": [
+    "build-phase-error",
+    "builddep-timeout",
+    "builddep-unresolved",
+    "rpmbuild-fail"
+  ]
+}
