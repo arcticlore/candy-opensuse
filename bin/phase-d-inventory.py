@@ -33,6 +33,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from collections import Counter
 from pathlib import Path
 
 OWNER = "arcticlore"
@@ -199,8 +200,6 @@ def categorize(values: dict[str, str]) -> str:
 
 
 def summarize_counts(entries: list[dict]) -> dict[str, int]:
-    from collections import Counter
-
     return dict(Counter(e["status"] for e in entries))
 
 
