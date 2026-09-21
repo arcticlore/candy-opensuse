@@ -35,8 +35,10 @@ Chroots: `opensuse-tumbleweed-x86_64|aarch64`, `opensuse-leap-16.0-x86_64|aarch6
 | neofetch      | 7.1.0 | 11007811 | bash (script) |
 
 Итого подтверждённых candidates: **11 пакетов × 4/4** (все — current
-fingerprint, база `365ed3d`). Отвергнутые pilot-сборки: `11007734` termshot
-(старый gpkg), `11007732` linuxwave (deferred).
+fingerprint, база `b6c25e0`; diff `365ed3d..b6c25e0` меняет только три bot-PR
+workflow и не затрагивает `SPECS/`/`pkgs.json`/`state/`/fingerprints).
+Отвергнутые pilot-сборки: `11007734` termshot (старый gpkg), `11007732`
+linuxwave (deferred).
 
 ## linuxwave — DEFERRED (решение владельца, OPTION 3)
 
@@ -64,7 +66,20 @@ pending** (секрет владельца + первый token-аутентиф
   35580146732 — все success;
 - принудительный `workflow_dispatch` validate 35576118660 — success;
 - PR #13: `mergeable=CLEAN`, все **6 required checks pass** (decommission,
-  drift-check, tests, opensuse-specs ×2, waiters).
+  drift-check, tests, opensuse-specs ×2, waiters); **смержен** → master
+  `b6c25e0` (merge commit `b6c25e0f4467ddd1916491febcb5b6f7b92bb0a5`).
+
+### Master post-merge validation
+
+Автоматическая post-merge push-валидация master **пропущена**: merge-сообщение
+`b6c25e0` содержало нативный CI skip-маркер (`[skip ci]` из заголовка PR #13),
+поэтому для этого SHA — **0 workflow runs**. Master не переписывался. Exact
+master провалидирован вручную через `workflow_dispatch`:
+
+- run **35584264340**, `event=workflow_dispatch`, `head_sha=b6c25e0f4467ddd1916491febcb5b6f7b92bb0a5`;
+- decommission=success, drift-check=success, tests=success, opensuse-specs
+  Tumbleweed=success, opensuse-specs Leap 16.0=success, waiters=success;
+- production workflow не диспатчился.
 
 **NOT YET PROVEN**: end-to-end workflow с `CANDY_BOT_TOKEN` (секрет не
 присутствовал и не использовался) — ждёт секрета владельца и первого
@@ -85,7 +100,8 @@ checks могут оставаться absent/pending — fail-closed, не full
 | `reports/opensuse-root-causes*.{md,json}` | root causes (build-phase, builddep, rpmbuild) |
 | `reports/production-approval-packet.md` | **12-item approval packet (DRAFT)** |
 | issue #12 | blocker record: linuxwave DEFERRED |
-| PR #13 | фикс bot-PR CI (6/6 required checks) |
+| PR #13 | фикс bot-PR CI (6/6 required checks); merged → master `b6c25e0` |
+| run `35584264340` | ручная post-merge валидация master `b6c25e0` (workflow_dispatch) |
 | PR #14 | коммит approval packet (DRAFT) |
 
 ## Остающиеся блокеры (item 12)
@@ -97,7 +113,7 @@ checks могут оставаться absent/pending — fail-closed, не full
 3. linuxwave Zig toolchain (issue #12) — deferred.
 4. Одобрение первого production batch (≤3) — владелец.
 5. Согласование rollback-скрипта — владелец.
-6. Reviewer-approval PR #13 → merge; затем ревью PR #14.
+6. PR #13 (фикс bot-PR CI) — **merged**; далее ревью PR #14 (DRAFT).
 
 ## Запрещено до отдельного решения владельца
 

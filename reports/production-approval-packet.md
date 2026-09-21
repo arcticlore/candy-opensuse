@@ -4,28 +4,39 @@
 production-действий выполнять нельзя до отдельного решения владельца.
 
 Сформирован: 2026-09-21 (UTC)
-Base commit для возможного батча: `365ed3ddb811268e5bb44d0d612504ac1068004f`
-(short `365ed3d`, «Merge pull request #11»).
+Base commit для возможного батча: `b6c25e0f4467ddd1916491febcb5b6f7b92bb0a5`
+(short `b6c25e0`, «Merge pull request #13»).
 
 ## 1. Точный SHA базы
 
 ```
-365ed3ddb811268e5bb44d0d612504ac1068004f
+b6c25e0f4467ddd1916491febcb5b6f7b92bb0a5
 ```
 
-`git log origin/master` (верхние 5):
+`git log origin/master` (верхние 6):
 
 ```
+b6c25e0 Merge pull request #13 from arcticlore/ci/bot-pr-required-checks
+a3173b1 ci: bot-PR workflows — consistent PAT auth, strict fail-closed push/PR, gh in container, run-attempt branches
+1b1cf14 ci: remove push-trigger probe artifact (item 11 evidence)
+a605987 ci: push-trigger probe (item 11 evidence)
+dd726c0 ci: remove [skip ci] from bot commits; prefer CANDY_BOT_TOKEN for bot PRs
 365ed3d Merge pull request #11 from arcticlore/fix/termshot-gpkg
-be9a21e fix(termshot): point gpkg at ./cmd/termshot (main package)
-730947a Merge pull request #10 from arcticlore/containment/pause-production-submit
-d0e116a containment: pause automatic production submit
-b0afcfb Merge pull request #9 from arcticlore/phase-d/reports-commit
 ```
 
-Diff `730947a..365ed3d` затрагивает только `SPECS/termshot.spec` + `pkgs.json`
-(поле gpkg) → current fingerprints остальных кандидатов подтверждены проверкой
-`reports/opensuse-inventory.json` от этой же базы.
+Исторический diff `730947a..365ed3d` затрагивает только `SPECS/termshot.spec` +
+`pkgs.json` (поле gpkg) → current fingerprints остальных кандидатов
+подтверждены проверкой `reports/opensuse-inventory.json`.
+
+Новый diff `365ed3d..b6c25e0` (PR #13, bot-PR CI fix) затрагивает **только**:
+
+- `.github/workflows/logrotate.yml`
+- `.github/workflows/sync-specs.yml`
+- `.github/workflows/update.yml`
+
+и **не меняет** `SPECS/`, `pkgs.json`, `state/` или candidate fingerprints.
+Следовательно fingerprints, подтверждённые базой `365ed3d`, остаются
+валидными и на базе `b6c25e0`.
 
 ## 2. Таблица кандидатов (уникальные пакеты, pilot 4/4, current fingerprint)
 
@@ -93,7 +104,8 @@ chroots. Production не имеет автоматического сетево�
 - `logrotate.yml`: только `workflow_dispatch`.
 
 Автоматического production submit не существует — подтверждено просмотром
-всех трёх prod-воркфлоу на master `365ed3d`.
+всех трёх prod-воркфлоу на master `b6c25e0` (diff `365ed3d..b6c25e0` меняет
+только bot-PR-аутентификацию, см. item 11; `schedule:` не добавлялся).
 
 ## 6. Предлагаемый первый production batch — МАКСИМУМ 3
 
@@ -108,9 +120,12 @@ chroots. Production не имеет автоматического сетево�
 ## 7. Только current-fingerprint 4/4
 
 В батч включаются только пакеты с pilot 4/4 на коммитах, совпадающих с текущим
-fingerprint. Diff `730947a..365ed3d` — только termshot; fingerprints остальных
-подтверждены базой `365ed3d`. termshot включён отдельным ретестом `11007766`
-после фикса gpkg. `maze` (расхождение версии, п.2) в первый батч НЕ включать.
+fingerprint. Исторический diff `730947a..365ed3d` — только termshot. Новый
+diff `365ed3d..b6c25e0` (PR #13) меняет только три bot-PR workflow и не
+затрагивает `SPECS/`/`pkgs.json`/`state/`, поэтому fingerprints, подтверждённые
+базой `365ed3d`, остаются валидными и на базе `b6c25e0`. termshot включён
+отдельным ретестом `11007766` после фикса gpkg. `maze` (расхождение версии,
+п.2) в первый батч НЕ включать.
 
 ## 8. linuxwave — DEFERRED, не входит в батч
 
@@ -158,18 +173,35 @@ pending** (секрет владельца + первый token-аутентиф
 - `push` в `ci/**` → `validate` (push-событие) и `sync-specs`
 - `pull_request` → `validate` (pull_request-событие)
 
-Эксперимент (2026-09-21): push без `[skip ci]` в `ci/**` создал 3 runs, все
-success (свежий push `1b1cf14` после фиксов):
+Эксперимент (2026-09-21): push без `[skip ci]` в `ci/**` создал runs, все
+success (финальный head PR #13 `a3173b1`):
 
-- `validate` push 35580139929
-- `sync specs` push 35580139956
-- `validate` pull_request 35580146732
+- `validate` push 35581903187
+- `sync specs` push 35581903093
+- `validate` pull_request 35581908295
 
-Принудительный `workflow_dispatch` validate на том же ref (35576118660) → success.
+Принудительный `workflow_dispatch` validate на предыдущем ref (35576118660) → success.
 
-Итог по PR #13 (head `1b1cf14`): `gh pr checks 13` — все **6 required checks
+Итог по PR #13 (head `a3173b1`): `gh pr checks 13` — все **6 required checks
 PASS** (decommission, drift-check, tests, opensuse-specs ×2, waiters),
-`mergeable=CLEAN`.
+`mergeable=CLEAN`. PR #13 **смержен** (merge commit `b6c25e0`).
+
+### Master post-merge validation (workflow_dispatch)
+
+Автоматическая post-merge push-валидация master была **пропущена**: merge-сообщение
+`b6c25e0` содержало нативный CI skip-маркер (строка `[skip ci]`, попавшая из
+заголовка PR #13), поэтому GitHub API показывает **0 workflow runs** для этого
+SHA. Master не переписывался (никаких revert/reset/force-push).
+
+Вместо этого exact master был провалидирован вручную через `workflow_dispatch`:
+
+- run **35584264340**, `event=workflow_dispatch`, `ref=master`,
+  `head_sha=b6c25e0f4467ddd1916491febcb5b6f7b92bb0a5`;
+- все шесть: decommission=success, drift-check=success, tests=success,
+  opensuse-specs Tumbleweed=success, opensuse-specs Leap 16.0=success,
+  waiters=success;
+- ни один production workflow не был запущен (`update`/`submit`/`rebuild`/
+  `logrotate` не диспатчились).
 
 ### NOT YET PROVEN (PAT-медированный путь)
 
@@ -207,11 +239,12 @@ PAT-медированного bot-PR заблокирована отсутст�
 | 3 | linuxwave: Zig toolchain (issue #12) | владелец + упаковщик | deferred |
 | 4 | Одобрение первого production batch (≤3, item 6) | владелец | НЕТ |
 | 5 | Согласование rollback-скрипта (item 9) | владелец | НЕТ |
-| 6 | Reviewer-approval PR #13 (фикс bot-PR CI) → merge | владелец | открыт |
+| 6 | PR #13 (фикс bot-PR CI) — **смержен**; далее ревью PR #14 (DRAFT) | владелец | merged |
 
 ## Связанные артефакты
 
 - inventory: `reports/opensuse-inventory.md`, `reports/opensuse-inventory-detailed.json`
 - root causes: `reports/opensuse-root-causes.md`, `reports/opensuse-root-causes.json`
 - blocker record: issue #12
-- bot-PR CI фикс: PR #13
+- bot-PR CI фикс: PR #13 (merged → master `b6c25e0`)
+- master post-merge validation: workflow_dispatch run `35584264340`
