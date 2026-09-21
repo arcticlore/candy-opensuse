@@ -146,46 +146,63 @@ COPR API `build/list?ownername=arcticlore&projectname=...&limit=120`:
 
 Активными считаются состояния вне `{succeeded,failed,skipped,canceled}`.
 
-## 11. Bot-PR получает required CI (item 11) — ДОКАЗАНО
+## 11. Bot-PR и required CI (item 11) — trigger/check matrix proven; PAT automation pending
+
+Статус: **trigger/check-matrix доказана; PAT-медированная автоматизация —
+pending** (секрет владельца + первый token-аутентифицированный bot-PR).
+
+### PROVEN (обычная аутентификация push)
 
 Валидированы оба триггера на branch `ci/bot-pr-required-checks`:
 
 - `push` в `ci/**` → `validate` (push-событие) и `sync-specs`
 - `pull_request` → `validate` (pull_request-событие)
 
-Эксперимент (2026-09-21): push `a605987` на `ci/bot-pr-required-checks` создал
-3 runs, все **success**:
+Эксперимент (2026-09-21): push без `[skip ci]` в `ci/**` создал 3 runs, все
+success (свежий push `1b1cf14` после фиксов):
 
-- `validate` push 35576274203
-- `sync specs` push 35576274211
-- `validate` pull_request 35576278380
+- `validate` push 35580139929
+- `sync specs` push 35580139956
+- `validate` pull_request 35580146732
 
 Принудительный `workflow_dispatch` validate на том же ref (35576118660) → success.
 
-Итог по PR #13: `gh pr checks 13` — все **6 required checks PASS**
-(decommission, drift-check, tests, opensuse-specs ×2, waiters),
+Итог по PR #13 (head `1b1cf14`): `gh pr checks 13` — все **6 required checks
+PASS** (decommission, drift-check, tests, opensuse-specs ×2, waiters),
 `mergeable=CLEAN`.
 
-Объяснение прежнего «zero checks»: bot-коммиты делались с префиксом `[skip ci]`,
-который полностью подавляет запуск; события, создаваемые `GITHUB_TOKEN`, по
-правилам GitHub не запускают новые workflow runs (исключения —
-`workflow_dispatch`/`repository_dispatch`/`pull_request` в состоянии
-approval-required). Фикс (PR #13):
+### NOT YET PROVEN (PAT-медированный путь)
 
-- убраны все `[skip ci]` из bot-коммитов;
+Экспериментальный push-эр был `arcticlore`; `candy-bot` — только Git
+author/committer. Секрет `CANDY_BOT_TOKEN` не присутствовал и не запускался.
+Полный workflow-to-PAT путь (bot-воркфлоу использует PAT через
+`secrets.CANDY_BOT_TOKEN`, push и `gh pr create` токен-аутентифицированы)
+**не доказан** — ожидает секрета владельца и первого token-аутентифицированного
+bot-PR.
+
+### Fallback: GITHUB_TOKEN
+
+События, создаваемые `GITHUB_TOKEN`, по правилам GitHub не порождают
+рекурсивные workflow runs; они не гарантируют появление required checks в виде
+approval-required — checks могут оставаться **absent/pending** (fail-closed).
+Fallback fail-closed, но не fully automated.
+
+### Фикс (PR #13)
+
+- убраны все `[skip ci]` из bot-коммитов (главная причина zero-checks);
 - `GH_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}` — при
-  наличии fine-grained PAT CI запускается без ручного approve;
+  наличии repo-scoped PAT CI запускается без ручного approve;
 - `git remote set-url origin https://x-access-token:${GH_TOKEN}@...` перед push.
 
-Вывод: для полностью автоматического CI на bot-PR остаётся единственный
-заблокированный элемент — секрет `CANDY_BOT_TOKEN` (добавляет владелец; без
-него bot-PR работает в режиме approval-required).
+**Вывод**: trigger/check-matrix доказана; полная автоматизация
+PAT-медированного bot-PR заблокирована отсутствием секрета `CANDY_BOT_TOKEN`
+(см. item 12.1).
 
 ## 12. Остающиеся блокеры и требуемые approvals
 
 | # | блокер / требование | кем решается | статус |
 |---|---------------------|--------------|--------|
-| 1 | Секрет `CANDY_BOT_TOKEN` (fine-grained PAT: contents+pull-requests write) | владелец | НЕТ |
+| 1 | Секрет `CANDY_BOT_TOKEN` — repository-scoped Actions secret, минимальные Contents write + Pull requests write, желательно с expiration. Добавляет только владелец; PAT в чат/коммиты не выкладывать | владелец | НЕТ |
 | 2 | `candy-production` environment approval | владелец | не одобрено |
 | 3 | linuxwave: Zig toolchain (issue #12) | владелец + упаковщик | deferred |
 | 4 | Одобрение первого production batch (≤3, item 6) | владелец | НЕТ |

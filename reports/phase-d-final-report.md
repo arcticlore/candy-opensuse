@@ -48,20 +48,33 @@ Zig >= 0.16.0-dev. В `openSUSE:Leap:16.0` zig0.16/0.15/0.14 отсутству�
 Гипотетический offline-вендоринг покрывал бы только TW → максимум 2/4 → не
 принято. Из production-батча исключён.
 
-## Bot-PR и required CI (item 11) — доказано экспериментально
+## Bot-PR и required CI (item 11) — trigger/check matrix proven; PAT automation pending
 
-- Ветка `ci/bot-pr-required-checks` (PR #13: убран `[skip ci]`, добавлен
+Статус: **trigger/check-matrix доказана; PAT-медированная автоматизация —
+pending** (секрет владельца + первый token-аутентифицированный bot-PR).
+
+**PROVEN** (обычная аутентификация push; push-эр `arcticlore`, `candy-bot` —
+только author/committer):
+
+- ветка `ci/bot-pr-required-checks` (PR #13: убран `[skip ci]`, добавлен
   `GH_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}`,
-  remote set-url→токен перед push).
-- Свежий push `a605987` в `ci/**`: validate push 35576274203 + sync-specs push
-  35576274211 + validate pull_request 35576278380 — все success.
-- Принудительный `workflow_dispatch` validate 35576118660 — success.
+  remote set-url→токен перед push);
+- свежий push без `[skip ci]` в `ci/**` (head `1b1cf14`): validate push
+  35580139929 + sync-specs push 35580139956 + validate pull_request
+  35580146732 — все success;
+- принудительный `workflow_dispatch` validate 35576118660 — success;
 - PR #13: `mergeable=CLEAN`, все **6 required checks pass** (decommission,
   drift-check, tests, opensuse-specs ×2, waiters).
-- Объяснение прежнего zero-checks: `[skip ci]` в bot-коммитах + правило GitHub
-  о том, что события от `GITHUB_TOKEN` не порождают новые runs
-  (кроме dispatch / pull_request в approval-required-режиме). Полная
-  автоматизация требует секрета `CANDY_BOT_TOKEN` (добавляет владелец).
+
+**NOT YET PROVEN**: end-to-end workflow с `CANDY_BOT_TOKEN` (секрет не
+присутствовал и не использовался) — ждёт секрета владельца и первого
+token-аутентифицированного bot-PR.
+
+**Fallback**: события от `GITHUB_TOKEN` не порождают рекурсивные runs; required
+checks могут оставаться absent/pending — fail-closed, не fully automated.
+
+Объяснение прежнего zero-checks: `[skip ci]` в bot-коммитах (главная причина) +
+правило GitHub о событиях от `GITHUB_TOKEN`.
 
 ## Артефакты
 
@@ -77,7 +90,9 @@ Zig >= 0.16.0-dev. В `openSUSE:Leap:16.0` zig0.16/0.15/0.14 отсутству�
 
 ## Остающиеся блокеры (item 12)
 
-1. Секрет `CANDY_BOT_TOKEN` — владелец.
+1. Секрет `CANDY_BOT_TOKEN` — repository-scoped Actions secret, минимальные
+   Contents write + Pull requests write, желательно с expiration. Добавляет
+   только владелец; PAT в чат/коммиты не выкладывать.
 2. `candy-production` environment approval — владелец.
 3. linuxwave Zig toolchain (issue #12) — deferred.
 4. Одобрение первого production batch (≤3) — владелец.
