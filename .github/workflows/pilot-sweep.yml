@@ -1,0 +1,142 @@
+name: pilot sweep (opensuse beta, isolated matrix)
+on:
+  workflow_dispatch:
+    inputs:
+      pkgs:
+        description: "Пилотные пакеты через запятую, максимум 10 уникальных известных enabled имён. Неизвестное/дубликат/пустое = failure."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pilot-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      packages: ${{ steps.validate.outputs.packages }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Strict input validation (<=10 unique known enabled package names)
+        id: validate
+        env:
+          PKGS: ${{ inputs.pkgs }}
+        run: |
+          set -euo pipefail
+          [ -n "${PKGS// }" ] || { echo "[FAIL] пустой ввод"; exit 1; }
+          mapfile -t names < <(printf '%s\n' "$PKGS" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$')
+          [ "${#names[@]}" -le 10 ] || { echo "[FAIL] больше 10 имён: ${#names[@]}"; exit 1; }
+          seen=()
+          for n in "${names[@]}"; do
+            printf '%s\n' "${seen[@]:-}" | grep -qx -- "$n" && { echo "[FAIL] дубликат: $n"; exit 1; }
+            jq -e --arg n "$n" '.packages[] | select(.name==$n)' pkgs.json > /dev/null 2>&1 || { echo "[FAIL] неизвестное имя: $n"; exit 1; }
+            [ -f "SPECS/$n.spec" ] || { echo "[FAIL] нет SPECS/$n.spec (enabled inventory): $n"; exit 1; }
+            seen+=("$n")
+          done
+          out=$(printf '%s\n' "${seen[@]}" | jq -R -s 'split("\n")[:-1]')
+          echo "packages=$out" >> "$GITHUB_OUTPUT"
+          echo "validated: $(printf '%s' "$out" | jq -c '.')"
+
+  build:
+    needs: assemble
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    container: fedora:44
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        package: ${{ fromJson(needs.assemble.outputs.packages) }}
+    env:
+      COPR_PROJECT: arcticlore/candy-opensuse-pilot
+      PKG: ${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+
+      - name: Install toolchain
+        run: |
+          dnf install -y jq git rpm-build rpmdevtools python3 cargo rust \
+            golang nodejs24 nodejs24-npm-bin copr-cli > /dev/null 2>&1 \
+            || dnf install -y jq git rpm-build rpmdevtools python3 cargo rust copr-cli
+
+      - name: Build SRPM and submit (per-package isolation; COPR secret via env, config 0600 + trap)
+        id: submit
+        env:
+          COPR_CONFIG_SECRET: ${{ secrets.COPR_CONFIG }}
+        run: |
+          set -o pipefail
+          mkdir -p logs
+          write_copr_config() {
+            local conf
+            conf="$RUNNER_TEMP/copr-pilot-$PKG.conf"
+            umask 077
+            printf '%s\n' "${COPR_CONFIG_SECRET}" > "$conf"
+            chmod 600 "$conf"
+            printf '%s' "$conf"
+          }
+          CONF="$(write_copr_config)"
+          trap 'rm -f "$CONF"' EXIT
+          trap 'trap - EXIT; rm -f "$CONF"; exit 130' HUP INT TERM
+
+          rm -f SRPMS/${PKG}-*.src.rpm
+          if ! bin/make-srpm.sh "$PKG" > "logs/srpm-$PKG.log" 2>&1; then
+            rc=$?
+            echo "  [FAIL] $PKG: make-srpm rc=$rc — хвост лога:"
+            tail -12 "logs/srpm-$PKG.log" | sed 's/^/    /'
+            exit 1
+          fi
+          srpm=$(ls SRPMS/${PKG}-*.src.rpm 2>/dev/null | head -1)
+          [ -z "$srpm" ] && { echo "  [FAIL] $PKG: SRPM не найден"; exit 1; }
+          echo "  [SUBMIT] $srpm -> $COPR_PROJECT"
+          if ! copr-cli --config "$CONF" build --nowait "$COPR_PROJECT" "$srpm" > "logs/copr-$PKG.log" 2>&1; then
+            echo "  [FAIL] $PKG: copr-cli rc=$? — хвост лога:"
+            tail -12 "logs/copr-$PKG.log" | sed 's/^/    /'
+            exit 1
+          fi
+          build_id=$(python3 bin/copr_waiter.py print-build-ids "logs/copr-$PKG.log")
+          if [ -z "$build_id" ]; then
+            echo "  [FAIL] $PKG: не удалось извлечь numeric build id"
+            sed 's/^/    /' "logs/copr-$PKG.log"
+            exit 1
+          fi
+          echo "  [BUILD_ID] $PKG => $build_id"
+          echo "build_id=$build_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for terminal 4/4 (all four chroots, tolerant waiter)
+        if: steps.submit.outputs.build_id != ''
+        timeout-minutes: 250
+        env:
+          COPR_API_TOKEN: ${{ secrets.COPR_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          rc=0
+          python3 bin/copr_waiter.py watch --build-id "${{ steps.submit.outputs.build_id }}" \
+            --pkgs-json pkgs.json --timeout-min 180 --interval 60 || rc=$?
+          echo "  waiter rc=$rc for $PKG build ${{ steps.submit.outputs.build_id }}"
+          exit $rc
+
+      - name: Job summary (package/build/chroot matrix)
+        if: always()
+        env:
+          BID: ${{ steps.submit.outputs.build_id }}
+        run: |
+          if [ -z "$BID" ]; then
+            printf '| %s | — | pre-submit failed | | | |\n' "$PKG" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          summary=$(python3 - "$BID" "$PKG" <<'PY'
+import json, sys, urllib.request
+bid, pkg = sys.argv[1], sys.argv[2]
+url=f"https://copr.fedorainfracloud.org/api_3/build-chroot/list?build_id={bid}&paginate=0"
+data=json.load(urllib.request.urlopen(url))
+want=['opensuse-tumbleweed-x86_64','opensuse-tumbleweed-aarch64','opensuse-leap-16.0-x86_64','opensuse-leap-16.0-aarch64']
+by={c['name']:c['state'] for c in data['items']}
+print('| %s | %s | %s |' % (pkg, bid, ' | '.join(by.get(w,'-') for w in want)))
+PY
+)
+          printf '%s\n' "$summary" >> "$GITHUB_STEP_SUMMARY"
