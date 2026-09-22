@@ -48,6 +48,7 @@ cargo build --release --offline
 
 %install
 cd yazi-build
+cd ..
 install -Dpm0755 target/release/yazi %{buildroot}%{_bindir}/yazi
 install -Dpm0755 target/release/ya %{buildroot}%{_bindir}/ya
 

@@ -491,6 +491,11 @@ def body_cargo(m: Package, br: list[str], req: list[str]) -> str:
         f"install -Dpm0755 target/release/{b} %{{buildroot}}%{{_bindir}}/{b}"
         for b in bins
     )
+    # В workspace-репозиториях (cdir — член workspace) cargo кладёт бинарники
+    # в target/ корня workspace, а не в target/ подкаталога crate. Пакеты с
+    # таким layout переопределяют install_cmd (например "cd ..\ninstall ...").
+    if m.install_cmd and m.install_cmd != "%make_install":
+        inst = m.install_cmd
 
     out += [
         "",

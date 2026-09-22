@@ -30,6 +30,7 @@ Don't throw tomatoes - file issues instead.
 
 %prep
 %autosetup -N -a1 -n bandwhich-0.23.1
+sed -i '/^packet-builder = /d' Cargo.toml
 mkdir -p .cargo
 cat > .cargo/config.toml <<'EOF'
 [source.crates-io]

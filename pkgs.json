@@ -99,6 +99,7 @@
    ],
    "alt": "cargo install yazi-cli или бинарники Releases",
    "cdir": "yazi-build",
+   "install_cmd": "cd ..\ninstall -Dpm0755 target/release/yazi %{buildroot}%{_bindir}/yazi\ninstall -Dpm0755 target/release/ya %{buildroot}%{_bindir}/ya",
    "version": "26.8.15",
    "topdir": "yazi-26.8.15"
   },
@@ -133,6 +134,7 @@
    "use": "sd 'старый текст' 'новый текст' file.txt",
    "alt": "cargo install sd",
    "cdir": "sd-cli",
+   "install_cmd": "cd ..\ninstall -Dpm0755 target/release/sd %{buildroot}%{_bindir}/sd",
    "topdir": "sd-1.1.0"
   },
   {
@@ -713,6 +715,9 @@
    "pkg": "snowmachine",
    "summary": "Snow in your terminal",
    "license": "MIT",
+   "br": [
+    "python3-hatchling"
+   ],
    "prio": 3,
    "use": "snowmachine — снегопад",
    "extra_files": [
@@ -727,6 +732,9 @@
    "pkg": "pybonsai",
    "summary": "Procedural ASCII bonsai tree generator",
    "license": "MIT",
+   "br": [
+    "python3-hatchling"
+   ],
    "verify": true,
    "prio": 3,
    "use": "pybonsai — растит бонсай",
@@ -1685,6 +1693,9 @@
    "bins": [
     "tte"
    ],
+   "br": [
+    "python3-hatchling"
+   ],
    "prio": 3,
    "alt": "pip install terminaltexteffects",
    "use": "tte \"твой текст\" — эффекты печати; tte --list-effects",
@@ -2332,6 +2343,7 @@
    "bins": [
     "bandwhich"
    ],
+   "prep_extra": "sed -i '/^packet-builder = /d' Cargo.toml",
    "use": "sudo bandwhich -i wlan0",
    "prio": 1,
    "topdir": "bandwhich-0.23.1"

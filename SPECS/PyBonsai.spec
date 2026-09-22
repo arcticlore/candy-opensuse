@@ -17,6 +17,7 @@ BuildRequires:  python313-pip
 BuildRequires:  python313-wheel
 BuildRequires:  python313-setuptools
 BuildRequires:  python-rpm-macros
+BuildRequires:  python313-hatchling
 
 %description
 Procedural ASCII bonsai tree generator
