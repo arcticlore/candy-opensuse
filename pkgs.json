@@ -98,8 +98,7 @@
     "VERGEN_GIT_SHA=\"copr-build\""
    ],
    "alt": "cargo install yazi-cli или бинарники Releases",
-   "cdir": "yazi-build",
-   "install_cmd": "cd ..\ninstall -Dpm0755 target/release/yazi %{buildroot}%{_bindir}/yazi\ninstall -Dpm0755 target/release/ya %{buildroot}%{_bindir}/ya",
+   "install_cmd": "install -Dpm0755 target/release/yazi %{buildroot}%{_bindir}/yazi\ninstall -Dpm0755 target/release/ya %{buildroot}%{_bindir}/ya",
    "version": "26.8.15",
    "topdir": "yazi-26.8.15"
   },
