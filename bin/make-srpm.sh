@@ -147,6 +147,8 @@ npm)
     else
         (cd "$D" && npm install --omit=dev)
     fi
+    # zero-dependency пакеты (pure) не создают node_modules вовсе
+    mkdir -p "$D/node_modules"
     tar -C "$D" -czf "SOURCES/$NAME-node-vendor-$VER.tar.gz" node_modules
     rm -rf "$D" ;;
 esac
