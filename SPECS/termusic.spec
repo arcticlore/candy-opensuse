@@ -17,6 +17,10 @@ BuildRequires:  cargo
 BuildRequires:  rust
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
+BuildRequires:  alsa-devel
+BuildRequires:  gstreamer-devel
+BuildRequires:  gst-plugins-base-devel
+BuildRequires:  mpv-devel
 
 # NOTE: воркспейс; тяжёлые зависимости mpv/gstreamer
 
