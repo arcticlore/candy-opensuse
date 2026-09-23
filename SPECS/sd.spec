@@ -45,6 +45,7 @@ cargo build --release --offline
 
 %install
 cd sd-cli
+cd ..
 install -Dpm0755 target/release/sd %{buildroot}%{_bindir}/sd
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}

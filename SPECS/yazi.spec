@@ -42,12 +42,10 @@ directory = "vendor"
 EOF
 
 %build
-cd yazi-build
 export VERGEN_GIT_SHA="copr-build"
 cargo build --release --offline
 
 %install
-cd yazi-build
 install -Dpm0755 target/release/yazi %{buildroot}%{_bindir}/yazi
 install -Dpm0755 target/release/ya %{buildroot}%{_bindir}/ya
 
