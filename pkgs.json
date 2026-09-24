@@ -2278,7 +2278,7 @@
    "name": "fend",
    "eco": "cargo",
    "host": "github",
-   "slug": "printf/fend",
+   "slug": "printfn/fend",
    "tagp": "v",
    "summary": "Калькулятор произвольной точности",
    "license": "MIT",
