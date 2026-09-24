@@ -21,6 +21,7 @@ BuildRequires:  alsa-devel
 BuildRequires:  gstreamer-devel
 BuildRequires:  gst-plugins-base-devel
 BuildRequires:  mpv-devel
+BuildRequires:  protobuf-devel
 
 # NOTE: воркспейс; тяжёлые зависимости mpv/gstreamer
 

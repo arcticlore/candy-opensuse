@@ -40,11 +40,9 @@ directory = "vendor"
 EOF
 
 %build
-cd kondo
 cargo build --release --offline
 
 %install
-cd kondo
 install -Dpm0755 target/release/kondo %{buildroot}%{_bindir}/kondo
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}

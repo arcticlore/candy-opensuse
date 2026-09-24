@@ -200,8 +200,8 @@
    ],
    "gpkg": "gping",
    "prio": 1,
-"use": "gping 1.1.1.1 — ping с графиком",
-    "br": [
+   "use": "gping 1.1.1.1 — ping с графиком",
+   "br": [
     "cargo-rpm-macros"
    ],
    "alt": "cargo install gping",
@@ -1864,14 +1864,15 @@
    "exp": true,
    "verify": true,
    "prio": 7,
-"note": "воркспейс; тяжёлые зависимости mpv/gstreamer",
-    "br": [
-     "alsa-devel",
-     "gstreamer-devel",
-     "gst-plugins-base-devel",
-     "mpv-devel"
-    ],
-    "topdir": "termusic-0.13.2"
+   "note": "воркспейс; тяжёлые зависимости mpv/gstreamer",
+   "br": [
+    "alsa-devel",
+    "gstreamer-devel",
+    "gst-plugins-base-devel",
+    "mpv-devel",
+    "protobuf-devel"
+   ],
+   "topdir": "termusic-0.13.2"
   },
   {
    "name": "pipes.rs",
@@ -2128,7 +2129,6 @@
    ],
    "use": "kondo ~/dev — найти мусор",
    "prio": 2,
-   "cdir": "kondo",
    "topdir": "kondo-0.9"
   },
   {
