@@ -43,14 +43,14 @@ EOF
 cargo build --release --offline
 
 %install
-install -Dpm0755 target/release/trippy %{buildroot}%{_bindir}/trippy
+install -Dpm0755 target/release/trip %{buildroot}%{_bindir}/trip
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
 for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done
 %files
 %{_licensedir}/%{name}
 
-%{_bindir}/trippy
+%{_bindir}/trip
 
 %changelog
 * Sat Sep 19 2026 candy-bot <candy@localhost> - 0.13.0-1

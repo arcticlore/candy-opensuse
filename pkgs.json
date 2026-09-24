@@ -1850,7 +1850,8 @@
    "prio": 3,
    "topdir": "ttysvr-0.3.4",
    "br": [
-    "alsa-devel"
+    "alsa-devel",
+    "libudev-devel"
    ]
   },
   {
@@ -2393,7 +2394,7 @@
    "summary": "Гибрид mtr/traceroute с живым TUI",
    "license": "Apache-2.0 OR MIT",
    "bins": [
-    "trippy"
+    "trip"
    ],
    "gpkg": ".",
    "use": "sudo trip example.com",
