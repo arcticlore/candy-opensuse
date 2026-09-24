@@ -40,11 +40,9 @@ directory = "vendor"
 EOF
 
 %build
-cd crates/trippy
 cargo build --release --offline
 
 %install
-cd crates/trippy
 install -Dpm0755 target/release/trippy %{buildroot}%{_bindir}/trippy
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}

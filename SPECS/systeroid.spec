@@ -41,11 +41,9 @@ directory = "vendor"
 EOF
 
 %build
-cd systeroid
 cargo build --release --offline
 
 %install
-cd systeroid
 install -Dpm0755 target/release/systeroid %{buildroot}%{_bindir}/systeroid
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}

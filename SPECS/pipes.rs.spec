@@ -40,11 +40,9 @@ directory = "vendor"
 EOF
 
 %build
-cd crates/pipes-rs
 cargo build --release --offline
 
 %install
-cd crates/pipes-rs
 install -Dpm0755 target/release/pipes-rs %{buildroot}%{_bindir}/pipes-rs
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}

@@ -1848,7 +1848,10 @@
    "fallback": "commit",
    "verify": true,
    "prio": 3,
-   "topdir": "ttysvr-0.3.4"
+   "topdir": "ttysvr-0.3.4",
+   "br": [
+    "alsa-devel"
+   ]
   },
   {
    "name": "termusic",
@@ -1888,7 +1891,6 @@
    "gpkg": ".",
    "verify": true,
    "prio": 3,
-   "cdir": "crates/pipes-rs",
    "topdir": "pipes-rs-1.6.4"
   },
   {
@@ -2271,7 +2273,6 @@
    "exp": true,
    "use": "systeroid --tui",
    "prio": 7,
-   "cdir": "systeroid",
    "topdir": "systeroid-0.4.6"
   },
   {
@@ -2397,7 +2398,6 @@
    "gpkg": ".",
    "use": "sudo trip example.com",
    "prio": 1,
-   "cdir": "crates/trippy",
    "topdir": "trippy-0.13.0"
   },
   {
