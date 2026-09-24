@@ -41,11 +41,9 @@ directory = "vendor"
 EOF
 
 %build
-cd gping
 cargo build --release --offline
 
 %install
-cd gping
 install -Dpm0755 target/release/gping %{buildroot}%{_bindir}/gping
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
