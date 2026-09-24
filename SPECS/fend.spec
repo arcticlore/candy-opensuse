@@ -4,7 +4,7 @@ Release:        1%{?dist}
 Summary:        Калькулятор произвольной точности
 
 License:        MIT
-URL:            https://github.com/printf/fend
+URL:            https://github.com/printfn/fend
 Source0:        %{name}-%{version}.tar.gz
 Source1:        %{name}-vendor-%{version}.tar.gz
 %{!?_licensedir:%global _licensedir %{_datadir}/licenses}
