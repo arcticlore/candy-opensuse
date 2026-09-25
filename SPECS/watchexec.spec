@@ -42,11 +42,9 @@ directory = "vendor"
 EOF
 
 %build
-cd crates/cli
 cargo build --release --offline
 
 %install
-cd crates/cli
 install -Dpm0755 target/release/watchexec %{buildroot}%{_bindir}/watchexec
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}

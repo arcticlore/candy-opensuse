@@ -1651,7 +1651,6 @@
     "glslang",
     "pkgconf-pkg-config"
    ],
-   "cdir": "frontends/rioterm",
    "topdir": "rio-0.5.28"
   },
   {
@@ -2413,7 +2412,6 @@
    "bins": [
     "watchexec"
    ],
-   "cdir": "crates/cli",
    "note": "воркспейс; CLI в crates/cli",
    "use": "watchexec -- make test",
    "prio": 1,
