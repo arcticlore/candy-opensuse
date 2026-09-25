@@ -123,7 +123,7 @@ def load_pkgs(path: Path) -> PkgsFile:
                 slug=p.get("slug", ""),
                 enabled=p.get("enabled"),
                 prio=p.get("prio", 5),
-                ver=p.get("ver", ""),
+                ver=p.get("version", p.get("ver", "")),
                 bins=p.get("bins", []),
                 files=p.get("files", []),
                 moddir=p.get("moddir", ""),
@@ -955,7 +955,7 @@ def main() -> None:
             if not m.is_enabled():
                 continue
             try:
-                ver = state.get(n, {}).get("ver", "0")
+                ver = state.get(n, {}).get("ver", "") or m.ver or "0"
                 (out_dir / f"{n}.spec").write_text(render(n, ver, meta))
                 ok += 1
             except (KeyError, ValueError, OSError) as e:
