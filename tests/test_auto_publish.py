@@ -135,3 +135,21 @@ class TestRenderMarkdown:
         assert "linuxwave" in md and "jq" in md
         assert "pilot-not-clean" in md
         assert md.startswith("### Волна")
+
+
+class TestArgParsing:
+    def test_flags_after_subcommand(self, mod):
+        for argv in (["plan", "--max-wave", "5"],
+                     ["--max-wave", "5", "plan"],
+                     ["run", "--max-wave", "5", "--confirm"],
+                     ["run", "--confirm", "--max-wave", "5"]):
+            args = mod.parse_args(mod.canonicalize(argv))
+            assert args.command in ("plan", "run")
+            assert args.max_wave == 5
+        assert mod.parse_args(mod.canonicalize(["run", "--confirm"])).force is False
+        assert mod.parse_args(mod.canonicalize(["run", "--confirm", "--force"])).force is True
+
+    def test_force_requires_confirm(self, mod, capfd):
+        assert mod.main(["run", "--force"]) == 1
+        err = capfd.readouterr().err
+        assert "--confirm" in err
