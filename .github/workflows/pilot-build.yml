@@ -89,7 +89,14 @@ jobs:
             fi
 
             srpm=$(ls SRPMS/${name}-*.src.rpm 2>/dev/null | head -1)
-            [ -z "$srpm" ] && { echo "  [FAIL] $name: SRPM не найден"; exit 1; }
+            if [ -z "$srpm" ]; then
+              if grep -q '\[SKIP\]' "logs/srpm-$name.log"; then
+                echo "  [SKIP] $name: make-srpm пометил SKIP (пакет не собирается) — пропускаю"
+                continue
+              fi
+              echo "  [FAIL] $name: SRPM не найден"
+              exit 1
+            fi
 
             echo "  [SUBMIT] $srpm -> $COPR_PROJECT"
             if ! copr-cli --config "$CONF" build --nowait "$COPR_PROJECT" "$srpm" > "logs/copr-$name.log" 2>&1; then
