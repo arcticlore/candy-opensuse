@@ -1,17 +1,29 @@
-name: submit to copr (opensuse beta)
-# CONTAINMENT (bp pause-production-submit): автоматический production submit
-# ОТКЛЮЧЁН. schedule-триггер удалён — запуск возможен только вручную через
-# workflow_dispatch и только с явным подтверждением scope.
+name: pilot→stable wave publish (opensuse)
+# Волновой автоматический конвейер openSUSE:
+#   ежедневный schedule + ручной dispatch — ТОЛЬКО новые версии (цели из
+#   state.json, не достигнутые зелёным в pilot) и волна размером max_wave.
+#   Каждый пакет: fresh SRPM -> pilot (exact 4/4) -> тот же SRPM -> stable
+#   (exact 4/4). Жёсткий гейт: failed/canceled/skipped/missing/timeout/API-error
+#   никогда не считаются успехом и НЕ продвигают пакет в stable.
+#   Безопасность:
+#   - пустая волна / «уже всё зелёное» => закончить без действий;
+#   - активные сборки в pilot/stable НЕ дублируются (resume по build id);
+#   - --force (полный ребилд) только вручную и с confirm_full_rebuild=true;
+#   - emergency brake: переменная репозитория CANDY_PUBLISH_PAUSE=true останавливает.
+#   - bot PR (state+SPECS) авто-мержится ТОЛЬКО при exact-regen diff и зелёных
+#     required checks; при любых не-чистых исходах волны — PR без auto-merge.
 on:
+  schedule:
+    - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
-      only:
-        description: "Пакеты через запятую (пилот). Пусто = ЗАПРЕЩЕНО без confirm_full_rebuild."
+      max_wave:
+        description: "Размер волны (сколько пакетов обрабатывать за run)."
         required: false
         type: string
-        default: ""
+        default: "5"
       full_rebuild:
-        description: "Полный ребилд (--force) ВСЕХ enabled-пакетов. Требует отдельного подтверждения confirm_full_rebuild=true."
+        description: "Полный ребилд (--force) ВСЕХ enabled-пакетов. Требует confirm_full_rebuild=true."
         required: false
         type: boolean
         default: false
@@ -20,52 +32,75 @@ on:
         required: false
         type: boolean
         default: false
+      stable_project:
+        description: "Стабильный COPR-проект (allowlist-guarded; менять нельзя)."
+        required: false
+        type: string
+        default: "arcticlore/candy-opensuse"
+      pilot_project:
+        description: "Pilot-проект (allowlist-guarded)."
+        required: false
+        type: string
+        default: "arcticlore/candy-opensuse-pilot"
 
 permissions:
   contents: write
   pull-requests: write
 
 jobs:
-  submit:
+  pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 320
     container: fedora:44
     environment: candy-production
     concurrency:
-      group: submit-production-${{ github.ref }}
+      group: opensuse-auto-publish
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
 
-      - name: Scope check — no implicit bulk submit, force needs explicit confirmation
+      - name: Scope check (allowlists + emergency brake + force confirm)
         id: scope
         env:
-          CANDY_ONLY_INPUT: ${{ inputs.only }}
           FORCE: ${{ inputs.full_rebuild }}
           CONFIRM_FULL: ${{ inputs.confirm_full_rebuild }}
+          MAX_WAVE: ${{ inputs.max_wave }}
+          STABLE_PROJECT: ${{ inputs.stable_project }}
+          PILOT_PROJECT: ${{ inputs.pilot_project }}
+          CANDY_PUBLISH_PAUSE: ${{ vars.CANDY_PUBLISH_PAUSE }}
         run: |
           set -euo pipefail
-          # 1) Пустой only НЕ означает «все пакеты». Нужно явное подтверждение.
-          if [ -z "$CANDY_ONLY_INPUT" ]; then
-            if [ "$CONFIRM_FULL" != "true" ]; then
-              echo "ABORT: пустой 'only' не означает все пакеты; подтверди полный ребилд (confirm_full_rebuild=true)" >&2
-              exit 1
-            fi
-            echo "SCOPE: ALL enabled packages (explicitly confirmed)"
-          else
-            echo "SCOPE: pilot subset only=[$CANDY_ONLY_INPUT]"
+          if [ "${CANDY_PUBLISH_PAUSE:-false}" = "true" ]; then
+            echo "ABORT: repo variable CANDY_PUBLISH_PAUSE=true (emergency brake)" >&2
+            exit 1
           fi
-          # 2) --force требует отдельного явного подтверждения.
+          if [ "$STABLE_PROJECT" != "arcticlore/candy-opensuse" ]; then
+            echo "ABORT: STABLE_PROJECT=$STABLE_PROJECT вне allowlist" >&2
+            exit 1
+          fi
+          if [ "$PILOT_PROJECT" != "arcticlore/candy-opensuse-pilot" ]; then
+            echo "ABORT: PILOT_PROJECT=$PILOT_PROJECT вне allowlist" >&2
+            exit 1
+          fi
           if [ "$FORCE" = "true" ] && [ "$CONFIRM_FULL" != "true" ]; then
             echo "ABORT: full_rebuild=true требует confirm_full_rebuild=true" >&2
+            exit 1
+          fi
+          case "$MAX_WAVE" in
+            ''|*[!0-9]*) echo "ABORT: max_wave должен быть числом ($MAX_WAVE)" >&2; exit 1 ;;
+          esac
+          if [ "$MAX_WAVE" -lt 1 ] || [ "$MAX_WAVE" -gt 25 ]; then
+            echo "ABORT: max_wave вне диапазона 1..25 (получили $MAX_WAVE)" >&2
             exit 1
           fi
           FORCE_FLAG=""
           [ "$FORCE" = "true" ] && FORCE_FLAG="--force"
           echo "force_flag=$FORCE_FLAG" >> "$GITHUB_OUTPUT"
-          echo "SCOPE_OK"
+          echo "max_wave=$MAX_WAVE" >> "$GITHUB_OUTPUT"
+          echo "SCOPE_OK wave=$MAX_WAVE force=${FORCE:-false}"
+
       - name: Install toolchain
         run: |
           set -euo pipefail
@@ -79,17 +114,22 @@ jobs:
 
       - name: Configure COPR
         run: |
+          set -euo pipefail
           mkdir -p ~/.config
           echo "${{ secrets.COPR_CONFIG }}" > ~/.config/copr
           chmod 600 ~/.config/copr
+          # API token для copr_waiter (чтение chroot-состояний).
+          if [ -n "${{ secrets.COPR_API_TOKEN }}" ]; then
+            echo "${{ secrets.COPR_API_TOKEN }}" > /tmp/copr-api-token
+            chmod 600 /tmp/copr-api-token
+          fi
 
-      - name: Generate specs
+      - name: Generate specs (из pkgs.json; идемпотентный)
         run: python3 bin/gen_specs.py --all
 
-      - name: Refresh upstream versions (цели для сабмита)
+      - name: Refresh upstream versions (цели волны из state.json)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CANDY_ONLY: ${{ inputs.only }}
         run: python3 bin/coprase-status.py versions 2>&1 | tee logs/versions.log
 
       - name: Restore SRPM cache
@@ -98,89 +138,76 @@ jobs:
           path: |
             SRPMS/
             SOURCES/
-          # Ключ = хэш источников правды, от которых зависит содержимое SRPM:
-          # pkgs.json (версии/BR/bins), генератор spec и скрипт сборки SRPM.
-          # Любое их изменение инвалидирует кэш и форсирует пересборку SRPM
-          # для пакетов со статусом submission. restore-keys намеренно НЕТ:
-          # префикс подтянул бы стейл-SRPM (собранные до фикса perl/noman/install)
-          # и снова отправил бы их в COPR.
+          # Ключ = хэш источников правды, от которых зависит содержимое SRPM.
+          # restore-keys намеренно НЕТ: стейл-SRPM недопустим.
           key: srpm-cache-${{ hashFiles('pkgs.json', 'bin/gen_specs.py', 'bin/make-srpm.sh') }}
+          enableCrossOsArchive: true
 
-      - name: Build SRPMs for packages needing submission
+      - name: Execute wave (fresh SRPM -> pilot exact-4/4 -> stable exact-4/4)
+        id: wave
         env:
-          CANDY_ONLY: ${{ inputs.only }}
+          COPR_STABLE: ${{ inputs.stable_project }}
+          COPR_PILOT: ${{ inputs.pilot_project }}
+          COPR_CONFIG_PATH: /root/.config/copr
+          COPR_API_TOKEN: ${{ secrets.COPR_API_TOKEN }}
+          WAVE_MAX: ${{ steps.scope.outputs.max_wave }}
+          # assert-переменная: никогда не переопределяем из inputs.
+          CANDY_STABLE_FIXED: arcticlore/candy-opensuse
         run: |
           set -o pipefail
-          echo "=== Building/rebuilding SRPMs for packages needing submission ==="
-          CHECK=$(python3 bin/coprase-status.py check 2>&1)
-          echo "$CHECK" | tee logs/check.log
-          TO_SUBMIT=$(echo "$CHECK" | grep -E "has SRPM|no SRPM" | awk '{print $1}' || true)
+          FORCE_FLAG="${{ steps.scope.outputs.force_flag }}"
+          echo "=== auto-publish plan (preview) ==="
+          python3 bin/auto-publish.py plan --max-wave "$WAVE_MAX" ${FORCE_FLAG} 2>&1 | tee logs/plan.log
+          echo "=== auto-publish run ==="
+          python3 bin/auto-publish.py run --max-wave "$WAVE_MAX" ${FORCE_FLAG} \
+            2>&1 | tee logs/publish.log || { echo "WAVE_FAILED"; exit 1; }
+          echo "wave_clean=true" >> "$GITHUB_OUTPUT"
 
-          BUILT=0
-          FAILED=0
-          SKIPPED=0
-          for name in $TO_SUBMIT; do
-            target=$(jq -r --arg n "$name" '.[$n].ver // ""' state/state.json)
-            if [ -z "$target" ]; then
-              echo "  [SKIP] $name: нет цели в state.json"
-              SKIPPED=$((SKIPPED+1))
-              continue
-            fi
-            if ls SRPMS/$name-$target-*.src.rpm >/dev/null 2>&1; then
-              echo "  [FINE] $name: SRPM уже на цели $target"
-              continue
-            fi
-            echo "  [BUILD SRPM] $name ($target)"
-            if bin/make-srpm.sh "$name" "$target" > "logs/srpm-$name.log" 2>&1; then
-              echo "  [OK] $name ($target)"
-              BUILT=$((BUILT+1))
-            else
-              rc=$?
-              echo "  [FAIL] $name (rc=$rc) — хвост лога:"
-              tail -8 "logs/srpm-$name.log" | sed 's/^/    /'
-              FAILED=$((FAILED+1))
-            fi
-          done
-
-          CACHED=$(ls SRPMS/*.src.rpm 2>/dev/null | wc -l)
-          echo "=== SRPMs: built=$BUILT failed=$FAILED skipped=$SKIPPED cached=$CACHED (полные логи: logs/srpm-*.log) ==="
-
-      # NOTE: dnf builddep guard (bin/check-deps.sh) is Fedora-only and is
-      # intentionally skipped in this openSUSE beta repo.
-
-      - name: Submit to COPR (dedup with version comparison, allowlist-guarded)
-        env:
-          CANDY_ONLY: ${{ inputs.only }}
-          PROJECT_ALLOWLIST: arcticlore/candy-opensuse-beta
+      - name: Verify exact-regen idempotency (gate перед auto-merge)
+        id: regen-check
         run: |
           set -euo pipefail
-          # Allowlist: единственный допустимый production-проект.
-          if [ -n "${COPR_PROJECT:-}" ] && [ "$COPR_PROJECT" != "$PROJECT_ALLOWLIST" ]; then
-            echo "ABORT: COPR_PROJECT=$COPR_PROJECT вне allowlist ($PROJECT_ALLOWLIST)" >&2
-            exit 1
+          python3 bin/gen_specs.py --all
+          if git diff --exit-code >/dev/null; then
+            echo "idempotent=true" >> "$GITHUB_OUTPUT"
+            echo "SPECS/state: точный реген-дифф (идемпотентно)"
+          else
+            echo "idempotent=false" >> "$GITHUB_OUTPUT"
+            git diff --stat
+            echo "WARN: gen_specs не идемпотентен — auto-merge отключён" >&2
           fi
-          FORCE_FLAG="${{ steps.scope.outputs.force_flag }}"
-          python3 bin/coprase-status.py submit ${FORCE_FLAG} 2>&1 | tee logs/submit.log
 
-      # NOTE: auto-triage is Fedora-specific (hardcoded Fedora chroots and the
-      # arcticlore/candy project) — disabled in the openSUSE beta for now.
-      - name: Auto-triage (skipped in beta)
-        if: always()
-        run: echo "auto-triage is Fedora-specific; skipped in openSUSE beta"
-
-      - name: Auto-issue (report failures)
+      - name: Auto-issue (failures из волны + failed в stable)
         if: always()
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bin/auto-issue.sh || true
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -u
+          echo "== wave-report =="
+          if [ -f logs/wave-report.json ]; then
+            python3 - <<'PY'
+          import json, os, subprocess
+          r = json.load(open("logs/wave-report.json"))
+          bad = [e for e in r.get("items", []) if e.get("outcome") not in ("promoted", "srpm-skip")]
+          if bad:
+              body = ("**Волна auto-publish: не-чистые исходы**\n\n"
+                      + "\n".join(f"- `{e['name']}`: `{e.get('outcome')}` {e.get('error','')}"
+                                  for e in bad)
+                      + f"\n\nRun: {os.environ.get('RUN_URL','')}")
+              title = "Wave failures (auto-publish channel)"
+              subprocess.run(["gh", "issue", "create", "--title", title, "--body", body],
+                             check=False)
+          else:
+              print("нет не-чистых исходов в волне")
+          PY
+          fi
+          echo "== stable failed реестр =="
+          bin/auto-issue.sh || true
 
-      - name: Commit state via bot branch + reviewable PR (no direct push to master)
+      - name: Commit state/SPECS via bot branch + reviewable PR; auto-merge только exact+green
         if: success()
         env:
-          # CANDY_BOT_TOKEN (PAT): события, аутентифицированные PAT, могут
-          # триггерить downstream CI. GITHUB_TOKEN fallback: рекурсивные workflow
-          # runs могут подавляться, required checks могут остаться absent/pending
-          # — путь fail-closed, но не автоматизированный.
           GH_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
@@ -195,24 +222,32 @@ jobs:
             echo "No changes to commit"
             exit 0
           fi
-          BRANCH="candy-bot/submit-sync-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          BRANCH="candy-bot/publish-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           git checkout -qb "$BRANCH" 2>/dev/null || git switch -c "$BRANCH"
-          git commit -qm "submit sync: state/version targets regenerated"
+          git commit -qm "publish sync: state targets + specs after wave ${{ steps.wave.outputs.wave_clean || 'true' }}"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           if ! git push origin "HEAD:$BRANCH"; then
             echo "ERROR: git push failed for $BRANCH" >&2
             exit 1
           fi
-          if ! gh pr create --base master --head "$BRANCH" \
-               --title "submit sync: state targets regenerated" \
-               --body "Autogenerated sync of state.json/SPECS from a production submit run. Reviewable PR — no direct push to master."; then
-            echo "ERROR: gh pr create failed for $BRANCH" >&2
-            exit 1
+          PR_URL=$(gh pr create --base master --head "$BRANCH" \
+               --title "publish sync: wave targets regenerated" \
+               --body "Autogenerated sync of state.json/SPECS from a pilot→stable wave run (exact 4/4 gate). Reviewable PR — no direct push to master." \
+               || { echo "ERROR: gh pr create failed" >&2; exit 1; })
+          echo "PR created: $PR_URL"
+          # Auto-merge ТОЛЬКО при точном реген-диффе (идемпотентно).
+          if [ "${{ steps.regen-check.outputs.idempotent }}" = "true" ]; then
+            gh pr merge "$BRANCH" --auto --squash --delete-branch \
+              || echo "WARN: auto-merge не включён (checks ещё не зелёные — это штатно)" >&2
+          else
+            echo "INFO: auto-merge отключён (regen не идемпотентен)"
           fi
 
       - name: Telegram notification
         if: always()
         run: |
+          CHAT_ID=""
+          BOT_TOKEN=""
           if [ -f ~/.config/candy/tg.conf ]; then
             CHAT_ID=$(grep -oP 'TG_CHAT_ID=\K.*' ~/.config/candy/tg.conf | head -1)
             BOT_TOKEN=$(grep -oP 'TG_BOT_TOKEN=\K.*' ~/.config/candy/tg.conf | head -1)
@@ -221,7 +256,7 @@ jobs:
           BOT_TOKEN="${BOT_TOKEN:-${{ secrets.TG_BOT_TOKEN }}}"
           if [ -n "$CHAT_ID" ] && [ -n "$BOT_TOKEN" ]; then
             STATUS="${{ job.status }}"
-            MSG="🤖 <b>candy submit</b>: ${STATUS}"
+            MSG="🤖 <b>candy pilot→stable wave</b>: ${STATUS}"
             curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
               -d chat_id="$CHAT_ID" -d parse_mode=HTML -d text="$MSG" >/dev/null 2>&1 || true
           fi
@@ -230,5 +265,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: submit-logs-${{ github.run_number }}
+          name: publish-logs-${{ github.run_number }}
           path: logs/

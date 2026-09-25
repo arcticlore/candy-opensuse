@@ -1,4 +1,4 @@
-name: sync specs (opensuse beta)
+name: sync specs (opensuse)
 on:
   workflow_dispatch:
     inputs:

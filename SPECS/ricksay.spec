@@ -18,13 +18,14 @@ Requires:       cowsay
 %description
 Rick and Morty quotes of the day (cowsay clone)
 
-ВНИМАНИЕ: пакет из неофициального стороннего репозитория arcticlore/candy-opensuse-beta.
-Репозиторий в активной разработке — возможны поломки и резкие изменения.
-Помидорами не кидайтесь, лучше заводите issue.
+ВНИМАНИЕ: пакет из неофициального стороннего репозитория arcticlore/candy-opensuse.
+Серийная (stable) сборка 127 пакетов для Tumbleweed и Leap 16.0; возможны редкие
+поломки на свежих релизах апстрима — заводите issue, помидоры не кидаем.
 
 WARNING: this package comes from an UNOFFICIAL third-party repository
-(arcticlore/candy-opensuse-beta). Work-in-progress: expect breakage and sudden changes.
-Don't throw tomatoes - file issues instead.
+(arcticlore/candy-opensuse). Stable channel, auto-updated from upstream releases;
+expect occasional breakage only on brand-new upstream versions — file issues instead.
+Don't throw tomatoes.
 
 %prep
 %autosetup -p1 -n ricksay-e75f53dcdc91baa8f2651328734e2ee7e6654663

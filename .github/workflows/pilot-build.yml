@@ -1,4 +1,4 @@
-name: pilot build (opensuse beta)
+name: pilot build (opensuse)
 on:
   workflow_dispatch:
     inputs:

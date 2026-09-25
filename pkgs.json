@@ -1,14 +1,15 @@
 {
  "project": {
-  "copr_name": "arcticlore/candy-opensuse-beta",
+  "copr_name": "arcticlore/candy-opensuse",
   "chroots": [
    "opensuse-tumbleweed-x86_64",
    "opensuse-tumbleweed-aarch64",
    "opensuse-leap-16.0-x86_64",
    "opensuse-leap-16.0-aarch64"
   ],
-  "description": "BETA: Terminal eye candy (fetch tools, ASCII animations, modern CLI replacements) for openSUSE Tumbleweed and Leap 16.0 (x86_64 + aarch64). Experimental port of arcticlore/candy-rpm. Auto-updated from upstream releases. Maintainer: arcticlore",
-  "workers": 8
+"description": "Terminal eye candy (fetch tools, ASCII animations, modern CLI replacements) for openSUSE Tumbleweed and Leap 16.0 (x86_64 + aarch64). Unofficial community repository with 127 packages, auto-updated from upstream releases. Maintainer: arcticlore",
+ "instructions": "UNOFFICIAL community repository. Use at your own risk; packages are NOT signed by the openSUSE project.\n\nEnable for openSUSE Tumbleweed (x86_64 / aarch64):\n\n  sudo zypper --non-interactive addrepo --refresh \\\n    https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse/repo/opensuse-tumbleweed-$basearch/arcticlore-candy-opensuse.repo \\\n    arcticlore-candy-opensuse\n  sudo zypper --gpg-auto-import-keys refresh arcticlore-candy-opensuse\n  sudo zypper install linuxwave\n\nFor openSUSE Leap 16.0 use opensuse-leap-16.0-$basearch in the URL instead of opensuse-tumbleweed-$basearch.\n\nMigrating from the retired candy-opensuse-beta project: remove the old repo first —\n  sudo zypper --non-interactive removerepo arcticlore-candy-opensuse-beta && sudo zypper refresh\n",
+ "workers": 8
  },
  "packages": [
   {
@@ -2010,7 +2011,9 @@
    "exp": true,
    "use": "zenith",
    "prio": 7,
-   "topdir": "%{name}-%{version}"
+   "topdir": "%{name}-%{version}",
+   "enabled": false,
+   "note": "disabled: в pkgs.json не было version/источника для версии, и в COPR у zenith нет ни одной сборки ни в pilot, ни в beta. Не включать в stable, пока не появится проверяемый upstream-источник и не будет построена сборка через pilot 4/4."
   },
   {
    "name": "ctop",

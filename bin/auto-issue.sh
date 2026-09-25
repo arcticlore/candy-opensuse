@@ -12,7 +12,7 @@ LOG=logs/auto-issue.log
 gh() { curl -s --max-time 30 -H "Authorization: Bearer $TOKEN" "$@"; }
 log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 
-FAILED=$(copr-cli list-builds arcticlore/candy-opensuse-beta 2>/dev/null \
+FAILED=$(copr-cli list-builds arcticlore/candy-opensuse 2>/dev/null \
          | awk '!seen[$2]++ && $NF=="failed"{print $2}' | sort)
 
 open_num=$(gh "$API/issues?state=open&per_page=100" \
@@ -32,7 +32,7 @@ if [ -z "$FAILED" ]; then
 fi
 
 BODY=$(jq -n --arg t "$TITLE" --arg list "$(echo "$FAILED" | sed 's/^/- /' | tr '\n' '\n')" \
-            --arg url "$(copr-cli list-builds arcticlore/candy-opensuse-beta >/dev/null 2>&1; echo https://github.com/arcticlore/candy-opensuse/actions)" \
+            --arg url "$(copr-cli list-builds arcticlore/candy-opensuse >/dev/null 2>&1; echo https://github.com/arcticlore/candy-opensuse/actions)" \
       '{title:$t, body:("Последний статус сборки:\n\n" + $list + "\n\nЛоги: " + $url)}')
 
 if [ -z "${open_num:-}" ]; then

@@ -1,4 +1,4 @@
-name: validate (opensuse beta)
+name: validate (opensuse stable)
 on:
   push:
     branches: [master, "ci/**"]
@@ -56,7 +56,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - name: Required 4-chroot drift check (repo vs production vs pilot)
+      - name: Required 4-chroot drift check (repo vs stable vs pilot)
         run: |
           python3 bin/drift-check.py
   tests:
@@ -140,7 +140,7 @@ jobs:
             echo "unexpanded_specs=$bad"
             [ "$bad" -eq 0 ] || { echo "FAIL: есть нераскрытые макросы"; exit 1; }
 
-            echo "== BuildRequires resolvability (pilot + репорт-кандидаты) =="
+            echo "== BuildRequires resolvability (pilot + кандидаты стабильной волны) =="
             miss_total=0
             for p in tealdeer sd yazi broot dua pipes.rs wallust Rio jp2a cyme \
                      archey4 pywal colorls lazygit starship lavat linuxwave \

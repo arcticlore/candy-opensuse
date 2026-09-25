@@ -3,16 +3,16 @@
 
 Сравнивает:
   * declared chroots в pkgs.json (repo);
-  * active chroots production COPR;
-  * active chroots pilot COPR;
+  * active chroots production COPR (candy-opensuse — stable);
+  * active chroots pilot COPR (candy-opensuse-pilot);
   * enable_net production и pilot (должен быть False).
 
 Любое расхождение, недоступность API или неизвестное состояние возвращает
 ненулевой код (exit 1) — проверка является REQUIRED, а не warning.
 
 Использование:
-  python3 bin/drift-check.py            # production + pilot
-  python3 bin/drift-check.py --project candy-opensuse-beta
+  python3 bin/drift-check.py              # stable (production) + pilot
+  python3 bin/drift-check.py --project candy-opensuse
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ def main() -> int:
     if args.project:
         checks = [args.project]
     else:
-        checks = ["candy-opensuse-beta", "candy-opensuse-pilot"]
+        checks = ["candy-opensuse", "candy-opensuse-pilot"]
 
     results = {}
     for name in checks:
