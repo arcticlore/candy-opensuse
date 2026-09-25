@@ -2334,7 +2334,7 @@
    "prio": 1,
    "alt": "curl https://mise.run | sh",
    "br": [
-    "cmake"
+    "openssl-devel"
    ],
    "topdir": "mise-2026.9.11"
   },
