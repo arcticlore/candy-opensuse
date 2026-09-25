@@ -16,6 +16,7 @@
 - [ ] Disk cleanup: PortProton 219G, Downloads 84G
 
 ## Infrastructure
+- [ ] candy-opensuse pilot-build.yml: `resume_build` с CSV передаётся в copr_waiter.py `--build-id` как один int — сейчас только один build id за раз (отдельный техдолг, из закрытой кампании)
 - [ ] Auto-triage: add `File must begin with "/"`, `Two files on one path`, `%generate_buildrequires` fail
 - [ ] Chroot lock: verify STUCK_HOURS threshold (6h default)
 - [ ] Night watchdog: ensure guard restarts babysit properly

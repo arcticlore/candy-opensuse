@@ -4,7 +4,7 @@
 set -u
 cd "$(dirname "$0")/.."
 TOKEN="${GITHUB_TOKEN:-$(grep -o 'ghp_[A-Za-z0-9]*' ~/.config/candy/push-token 2>/dev/null | head -1)}"
-REPO="arcticlore/candy-opensuse-beta"
+REPO="arcticlore/candy-opensuse"
 API="https://api.github.com/repos/$REPO"
 TITLE="🔴 Build failures report"
 LOG=logs/auto-issue.log
@@ -32,7 +32,7 @@ if [ -z "$FAILED" ]; then
 fi
 
 BODY=$(jq -n --arg t "$TITLE" --arg list "$(echo "$FAILED" | sed 's/^/- /' | tr '\n' '\n')" \
-            --arg url "$(copr-cli list-builds arcticlore/candy-opensuse-beta >/dev/null 2>&1; echo https://github.com/arcticlore/candy-opensuse-beta/actions)" \
+            --arg url "$(copr-cli list-builds arcticlore/candy-opensuse-beta >/dev/null 2>&1; echo https://github.com/arcticlore/candy-opensuse/actions)" \
       '{title:$t, body:("Последний статус сборки:\n\n" + $list + "\n\nЛоги: " + $url)}')
 
 if [ -z "${open_num:-}" ]; then
