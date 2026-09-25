@@ -15,7 +15,7 @@ class TestGenSpecs:
 
     def test_ecosystem_coverage(self, pkgs_json):
         """Все экосистемы в pkgs.json поддерживаются генератором"""
-        supported_ecos = {"cargo", "go", "npm", "gem", "nim", "zig",
+        supported_ecos = {"cargo", "go", "npm", "gem", "nim", "zig", "prebuilt",
                          "python-pkg", "python-script", "script",
                          "c-custom", "c-make", "c-cmake", "c-autotools", "meson", "custom"}
         actual_ecos = set(p.get("eco", "") for p in pkgs_json["packages"])
@@ -86,6 +86,42 @@ class TestGenSpecs:
         assert "install -Dpm0755 target/release/" in body, "нет установки из target/release"
         assert f"%{{_bindir}}/{sample_pkg['bins'][0]}" in body, \
             f"нет %{{_bindir}}/{sample_pkg['bins'][0]} в %files"
+
+    def test_prebuilt_body_no_build_no_network(self, pkgs_json):
+        """prebuilt-бэкенд: без zig/сборки/BR, ассеты по %{_arch}, оба SOURCE в files"""
+        import gen_specs
+        p = {"name": "linuxwave", "eco": "prebuilt", "host": "github",
+             "slug": "orhun/linuxwave", "ver": "0.4.0", "tagp": "v",
+             "topdir": "%{name}-%{version}", "bins": ["linuxwave"],
+             "assets": {"x86_64": "linuxwave-%{version}-x86_64-linux.tar.gz",
+                        "aarch64": "linuxwave-%{version}-aarch64-linux.tar.gz"},
+             "man1": True}
+        m = gen_specs.Package(**p)
+        body = gen_specs.body_prebuilt(m, [], [])
+        assert "zig " not in body and "BuildRequires" not in body
+        assert "case %{_arch} in" in body
+        assert 'x86_64) T="%{SOURCE0}";;' in body
+        assert 'aarch64) T="%{SOURCE1}";;' in body
+        assert "tar -xzf" in body
+        assert "%{_bindir}/linuxwave" in body
+        assert "%{_mandir}/man1/%{name}.1*" in body
+
+    def test_prebuilt_header_two_sources_only(self, pkgs_json):
+        """prebuilt-спека: Source0/1 = оба ассета, никакого source-тарбола"""
+        import gen_specs
+        p = {"name": "linuxwave", "eco": "prebuilt", "host": "github",
+             "slug": "orhun/linuxwave", "ver": "0.4.0", "tagp": "v",
+             "topdir": "%{name}-%{version}", "bins": ["linuxwave"],
+             "assets": {"x86_64": "linuxwave-%{version}-x86_64-linux.tar.gz",
+                        "aarch64": "linuxwave-%{version}-aarch64-linux.tar.gz"},
+             "man1": True}
+        m = gen_specs.Package(**p)
+        spec = gen_specs.render("linuxwave", "0.4.0", {"linuxwave": m})
+        assert "Source0:        linuxwave-%{version}-x86_64-linux.tar.gz" in spec
+        assert "Source1:        linuxwave-%{version}-aarch64-linux.tar.gz" in spec
+        assert "Source0:        %{name}-%{version}.tar.gz" not in spec
+        assert "BuildRequires" not in spec
+        assert "zig" not in spec
 
     def test_suse_name_map(self):
         """Fedora-имена BR переводятся в openSUSE (Tumbleweed: python3 => 3.13)"""
