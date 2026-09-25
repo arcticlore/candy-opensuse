@@ -171,13 +171,17 @@ jobs:
         id: regen-check
         run: |
           set -euo pipefail
-          python3 bin/gen_specs.py --all
-          if git diff --exit-code >/dev/null; then
+          # Идемпотентность ТУЛА: два подряд прогона gen_specs не меняют дерево SPECS.
+          # (diff vs HEAD здесь не применим: state.json законно накапливает новые версии.)
+          python3 bin/gen_specs.py --all > /dev/null
+          before=$(find SPECS -type f -exec sha256sum {} + | sort | sha256sum | cut -d' ' -f1)
+          python3 bin/gen_specs.py --all > /dev/null
+          after=$(find SPECS -type f -exec sha256sum {} + | sort | sha256sum | cut -d' ' -f1)
+          if [ "$before" = "$after" ]; then
             echo "idempotent=true" >> "$GITHUB_OUTPUT"
             echo "SPECS/state: точный реген-дифф (идемпотентно)"
           else
             echo "idempotent=false" >> "$GITHUB_OUTPUT"
-            git diff --stat
             echo "WARN: gen_specs не идемпотентен — auto-merge отключён" >&2
           fi
 
