@@ -173,3 +173,7 @@ Unknown failures are tagged `[HUMAN]` in `logs/auto-triage.log`.
 ## 📄 License
 
 MIT — [LICENSE](LICENSE)
+
+<br><br>
+
+> The code is provided "as is." Even the author no longer remembers how it works. Good luck!
