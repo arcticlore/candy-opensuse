@@ -71,6 +71,8 @@ class Package:
     extra_files: list[str] = field(default_factory=list)
     topdir: str = ""
     prep_extra: str = ""
+    assets: dict[str, str] = field(default_factory=dict)
+    man1: bool = False
 
     def is_enabled(self) -> bool:
         """Check if package is enabled."""
@@ -156,6 +158,8 @@ def load_pkgs(path: Path) -> PkgsFile:
                 extra_files=p.get("extra_files", []),
                 topdir=p.get("topdir", ""),
                 prep_extra=p.get("prep_extra", ""),
+                assets=p.get("assets", {}),
+                man1=p.get("man1", False),
             )
         )
 
@@ -265,7 +269,14 @@ def header(m: Package, ver: str) -> list[str]:
     url = url_map.get(m.host, m.url or "https://example.com")
 
     srcs = ["Source0:        %{name}-%{version}.tar.gz"]
-    if m.eco == "cargo":
+    if m.eco == "prebuilt":
+        # Официальные release-ассеты (по одному tarball на архитектуру) —
+        # оба попадают в SRPM, %install выбирает по %{_arch}.
+        srcs = [
+            f"Source{i}:        {asset}"
+            for i, asset in enumerate(m.assets.values())
+        ]
+    elif m.eco == "cargo":
         srcs.append("Source1:        %{name}-vendor-%{version}.tar.gz")
     elif m.eco in ("go", "npm"):
         srcs.append("Source1:        %{name}-node-vendor-%{version}.tar.gz")
@@ -775,6 +786,58 @@ def body_zig(m: Package, br: list[str], req: list[str]) -> str:
     return "\n".join(out) + "\n"
 
 
+def body_prebuilt(m: Package, br: list[str], req: list[str]) -> str:
+    """Generate body for prebuilt (official release-asset) ecosystem.
+
+    No source build and no network: both upstream tarballs ship inside the
+    SRPM as Source0/Source1 and %install picks the asset by %{_arch}.
+    """
+    out: list[str] = []
+    add_br_req(out, br or [], req or [])
+    top = m.topdir or "%{name}-%{version}"
+    case_lines = ["case %{_arch} in"]
+    for i, (arch, _) in enumerate(m.assets.items()):
+        case_lines.append(f'  {arch}) T="%{{SOURCE{i}}}";;')
+    case_lines += [
+        '  *) echo "%{name}: unsupported arch %{_arch}" >&2; exit 1;;',
+        "esac",
+    ]
+
+    out += [
+        "",
+        "%prep",
+        "# официальный prebuilt-ассет из апстрим-релиза — сборка из исходников",
+        "# не выполняется, сеть в buildroot не используется",
+        "",
+        "%build",
+        "# сборка не требуется: статик-pie бинарник из официального релиза",
+        "",
+        "%install",
+        "mkdir -p %{buildroot}%{_bindir}",
+        *case_lines,
+        "TMPD=$(mktemp -d)",
+        'tar -xzf "$T" -C "$TMPD"',
+        f'install -Dm0755 "$TMPD/{top}/%{{name}}" %{{buildroot}}%{{_bindir}}/%{{name}}',
+    ]
+    if m.man1:
+        out.append(
+            f'install -Dm0644 "$TMPD/{top}/man/%{{name}}.1" %{{buildroot}}%{{_mandir}}/man1/%{{name}}.1'
+        )
+    else:
+        out.append(f'rm -f "$TMPD/{top}/man/%{{name}}.1" || :')
+    out.append(
+        f'install -Dm0644 "$TMPD/{top}/LICENSE" %{{buildroot}}%{{_licensedir}}/%{{name}}/LICENSE'
+    )
+    out += ['rm -rf "$TMPD"', "", "%files"]
+    for b in m.bins or ["%{name}"]:
+        out.append(f"%{{_bindir}}/{b}")
+    out.append("%{_licensedir}/%{name}")
+    if m.man1:
+        out.append("%{_mandir}/man1/%{name}.1*")
+
+    return "\n".join(out) + "\n"
+
+
 def body_custom(m: Package, br: list[str], req: list[str]) -> str:
     """Generate body for custom ecosystem."""
     out: list[str] = []
@@ -828,6 +891,7 @@ BODIES: dict[str, Any] = {
     "meson": body_meson,
     "custom": body_custom,
     "zig": body_zig,
+    "prebuilt": body_prebuilt,
 }
 
 

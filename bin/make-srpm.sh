@@ -18,6 +18,43 @@ SLUG=$(echo "$M" | jq -r '.slug // ""')
 PKGR=$(echo "$M" | jq -r '.pkg // .name')
 TAGP=$(echo "$M" | jq -r '.tagp // ""')
 TAG="$TAGP$VER"
+ECO=$(echo "$M" | jq -r .eco)
+
+# --- prebuilt: официальные release-ассеты (нет сборки из исходников) ---
+if [ "$ECO" = "prebuilt" ]; then
+    RUNDIR="logs/runs/$(date +%Y%m%d-%H%M%S)-$NAME"
+    mkdir -p "$RUNDIR"
+    exec > >(tee -a "$RUNDIR/full.log") 2>&1
+
+    dl() { curl -fL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 900 -o "$2" "$1"; }
+
+    echo ">> [prebuilt] $NAME-$VER: официальные release-ассеты вместо сборки"
+    FAIL2=0
+    while IFS= read -r tmpl; do
+        [ -z "$tmpl" ] && continue
+        A=$(printf '%s' "$tmpl" | sed "s|%{version}|$VER|g")
+        U="https://github.com/$SLUG/releases/download/$TAG/$A"
+        if [ -f "SOURCES/$A" ]; then
+            echo "  >> SOURCES/$A уже есть — закачка пропущена" >&2
+        else
+            echo "  >> качаю $U" >&2
+            dl "$U" "SOURCES/$A.tmp" || { echo "[FAIL] $NAME: не удалось скачать $U" >&2; FAIL2=1; continue; }
+            dl "$U.sha512" "SOURCES/$A.sha512.tmp" || { echo "[FAIL] $NAME: нет .sha512 для $A" >&2; FAIL2=1; rm -f "SOURCES/$A.tmp"; continue; }
+            mv "SOURCES/$A.sha512.tmp" "SOURCES/$A.sha512"
+            mv "SOURCES/$A.tmp" "SOURCES/$A"
+            if ! ( cd SOURCES && sha512sum -c "$A.sha512" ); then
+                echo "[FAIL] $NAME: sha512 не совпал для $A" >&2
+                FAIL2=1; rm -f "SOURCES/$A" "SOURCES/$A.sha512"; continue
+            fi
+        fi
+    done <<< "$(echo "$M" | jq -r '.assets // {} | to_entries[] | .value')"
+    [ "$FAIL2" -eq 0 ] || { echo "[SKIP] $NAME: ассеты недоступны/некорректны" | tee -a logs/make-srpm.log; exit 2; }
+
+    bin/gen_specs.py "$NAME" "$VER" > "SPECS/$NAME.spec"
+    rpmbuild -bs --define "_topdir $ROOT" "SPECS/$NAME.spec"
+    echo "[OK] SRPMS/ содержит свежий $NAME-$VER src.rpm (prebuilt: $(echo "$M" | jq -c '.assets'))"
+    exit 0
+fi
 
 SRC="SOURCES/$NAME-$VER.tar.gz"
 
@@ -109,8 +146,6 @@ PY
     fi
     [ -n "$OK" ] || { echo "[SKIP] $NAME: сорцы недоступны (404/сеть)" | tee -a logs/make-srpm.log; exit 2; }
 fi
-
-ECO=$(echo "$M" | jq -r .eco)
 
 extract() {  # extract SRC -> tmpdir (срезаем верхний каталог)
     local d; d=$(mktemp -d "${TMPDIR:-/tmp}/vend-XXXXXX")

@@ -147,15 +147,15 @@ jobs:
                      animfetch bacon bottom delta grex hyperfine; do
               s="SPECS/$p.spec"; [ -f "$s" ] || continue
               brs=$(rpmspec -q --buildrequires "$s" 2>/dev/null | tr "\n" " ")
-              if zypper -n --no-refresh install --dry-run -y $brs > /dev/null 2>&1; then
-                echo "BR-OK $p"
-              else
+              if [ -n "$brs" ] && ! zypper -n --no-refresh install --dry-run -y $brs > /dev/null 2>&1; then
                 miss=""
                 for b in $brs; do
                   zypper -n --no-refresh install --dry-run -y "$b" > /dev/null 2>&1 || miss="$miss $b"
                 done
                 echo "BR-MISSING $p ::$miss"
                 miss_total=$((miss_total+1))
+              else
+                echo "BR-OK $p"
               fi
             done
             echo "br_missing_pkgs=$miss_total"
