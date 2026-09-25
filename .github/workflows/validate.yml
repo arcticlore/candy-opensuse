@@ -147,7 +147,9 @@ jobs:
                      animfetch bacon bottom delta grex hyperfine; do
               s="SPECS/$p.spec"; [ -f "$s" ] || continue
               brs=$(rpmspec -q --buildrequires "$s" 2>/dev/null | tr "\n" " ")
-              if zypper -n --no-refresh install --dry-run -y $brs > /dev/null 2>&1; then
+              if [ -z "$(printf '%s' "$brs" | tr -d ' ')" ]; then
+                echo "BR-OK $p (нет BuildRequires — prebuilt)"
+              elif zypper -n --no-refresh install --dry-run -y $brs > /dev/null 2>&1; then
                 echo "BR-OK $p"
               else
                 miss=""
