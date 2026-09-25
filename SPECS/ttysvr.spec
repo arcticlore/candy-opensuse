@@ -16,6 +16,8 @@ BuildRequires:  cargo
 BuildRequires:  rust
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
+BuildRequires:  alsa-devel
+BuildRequires:  libudev-devel
 
 %description
 Набор скринсейверов для терминала
