@@ -3,7 +3,7 @@
 
 Data source: Public COPR API (no auth). Auto-refresh every 5 minutes.
 
-Hardcoded default PROJECT is candy-opensuse-beta (COPR project name); full pagination
+Hardcoded default PROJECT is candy-opensuse (COPR stable project name); full pagination
 (limit=100 + offset loops) instead of a single +limit=1000 request.
 
 PROJECT is overridable via the CANDY_COPR_PROJECT env var for tests/manual use.
@@ -24,7 +24,7 @@ from typing import Any
 
 # Configuration
 OWNER = "arcticlore"
-PROJECT = os.environ.get("CANDY_COPR_PROJECT", "candy-opensuse-beta")
+PROJECT = os.environ.get("CANDY_COPR_PROJECT", "candy-opensuse")
 API_BASE = "https://copr.fedorainfracloud.org/api_3/build/list"
 PAGE_LIMIT = 100
 
@@ -151,7 +151,7 @@ def generate_html(builds: list[dict[str, Any]]) -> str:
 
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta http-equiv="refresh" content="300">
-<title>🧊 candy opensuse beta panel</title>
+<title>🧊 candy opensuse panel</title>
 <style>
 body{{background:#0b1220;color:#dbe4f0;font-family:'JetBrains Mono',Consolas,monospace;margin:24px}}
 h1{{font-size:30px;margin:6px 0}} h2{{color:#7dd3fc;margin-top:28px}}
@@ -180,7 +180,7 @@ th:hover{{color:#fff}}
 <div class="banner"><div class="inner"><h1>🧊 candy · openSUSE панель конвейера</h1>
 <span class="dim">автообновление 5 мин · {now} ·
 <a href="https://github.com/arcticlore/candy-opensuse">GitHub</a> ·
-<a href="https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse-beta/">COPR</a></span></div></div>
+<a href="https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse/">COPR</a></span></div></div>
 
 <h2>📊 Прогресс</h2>
 {progress_bar(ok, total, "зелёные пакеты", "#4ade80")}
@@ -259,7 +259,7 @@ def main() -> None:
     total = len(latest)
     ok = sum(1 for b in latest.values() if b.get("state") == "succeeded")
 
-    print(f"docs/index.html v4 (beta): {total} packages, {ok} succeeded")
+    print(f"docs/index.html v4 (opensuse): {total} packages, {ok} succeeded")
 
 
 if __name__ == "__main__":

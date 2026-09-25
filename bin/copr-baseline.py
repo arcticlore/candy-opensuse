@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""copr-baseline.py — снять честный baseline проекта arcticlore/candy-opensuse-beta
+"""copr-baseline.py — снять честный baseline проекта arcticlore/candy-opensuse
 с COPR API (полная пагинация) и классифицировать причины фейлов из логов билдеров.
 
 Выход: reports/opensuse-baseline.json + reports/opensuse-baseline.md.
@@ -26,7 +26,7 @@ from collections import Counter
 from pathlib import Path
 
 OWNER = "arcticlore"
-PROJECT = "candy-opensuse-beta"
+PROJECT = "candy-opensuse"
 API = "https://copr.fedorainfracloud.org/api_3"
 DL = "https://download.copr.fedorainfracloud.org/results"
 PAGE_LIMIT = 100

@@ -190,11 +190,15 @@ def categorize(values: dict[str, str]) -> str:
         return "never-built"
     if vals <= {"succeeded"}:
         return "succeeded"               # 4/4 или все присутствующие ok
+    # 'forked' — COPR-копия билда, который в исходном проекте (pilot) уже
+    # успешно завершился 4/4; результаты скопированы и отдаются клиентам.
+    if vals <= {"succeeded", "forked"}:
+        return "succeeded"               # forked-целиком либо смесь с succeeded
     if any(v in NONTERMINAL for v in vals):
         return "in-progress"
     if "failed" in vals:
         return "failed"
-    if vals <= {"skipped", "none", "canceled"}:
+    if vals <= {"skipped", "none", "canceled", "forked"}:
         return "edge-only"               # только none/skipped/canceled
     return "mixed"
 
@@ -298,7 +302,7 @@ def download_builder_log(project: str, build_id: int, name: str,
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--project", default=os.environ.get("COPR_PROJECT", "candy-opensuse-beta"))
+    ap.add_argument("--project", default=os.environ.get("COPR_PROJECT", "candy-opensuse"))
     ap.add_argument("--token", default=os.environ.get("COPR_API_TOKEN", ""))
     ap.add_argument("--out", default="reports")
     args = ap.parse_args()

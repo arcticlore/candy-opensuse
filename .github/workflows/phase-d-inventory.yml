@@ -3,10 +3,10 @@ on:
   workflow_dispatch:
     inputs:
       project:
-        description: "COPR project to inventory (default: production candy-opensuse-beta)"
+        description: "COPR project to inventory (default: production candy-opensuse)"
         required: false
         type: string
-        default: "candy-opensuse-beta"
+        default: "candy-opensuse"
 
 permissions:
   contents: read
@@ -28,7 +28,7 @@ jobs:
       - name: Run Phase D inventory (read-only COPR API)
         id: inventory
         env:
-          COPR_PROJECT: ${{ inputs.project || 'candy-opensuse-beta' }}
+          COPR_PROJECT: ${{ inputs.project || 'candy-opensuse' }}
           COPR_API_TOKEN: ${{ secrets.COPR_API_TOKEN }}
         run: |
           python3 -m pytest tests/test_phase_d_inventory.py -q
