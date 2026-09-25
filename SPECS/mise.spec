@@ -17,6 +17,7 @@ BuildRequires:  rust
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
 BuildRequires:  openssl-devel
+BuildRequires:  cmake
 
 %description
 Менеджер рантаймов node/python/ruby — быстрый asdf-killer
