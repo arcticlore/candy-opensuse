@@ -16,6 +16,7 @@ BuildRequires:  cargo
 BuildRequires:  rust
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
+BuildRequires:  openssl-devel
 BuildRequires:  cmake
 
 %description
