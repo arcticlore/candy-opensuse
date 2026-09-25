@@ -45,11 +45,9 @@ directory = "vendor"
 EOF
 
 %build
-cd frontends/rioterm
 cargo build --release --offline
 
 %install
-cd frontends/rioterm
 install -Dpm0755 target/release/rio %{buildroot}%{_bindir}/rio
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
