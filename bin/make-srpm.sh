@@ -9,7 +9,7 @@ NAME="$1"
 VER="${2:-$(bin/api_ver.sh "$NAME")}"
 if [ -z "$VER" ] || [ "$VER" = "null" ]; then
     echo "[SKIP] $NAME: апстрим-версия недоступна" | tee -a logs/make-srpm.log
-    exit 2
+    exit 0
 fi
 
 M=$(jq -c ".packages[] | select(.name==\"$NAME\")" pkgs.json)
