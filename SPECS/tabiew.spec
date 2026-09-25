@@ -4,15 +4,18 @@ Release:        1%{?dist}
 Summary:        TUI-просмотр csv/parquet/json датасетов
 
 License:        MIT
-URL:            https://github.com/fathulfahmy/tabiew
+URL:            https://github.com/shshemi/tabiew
 Source0:        %{name}-%{version}.tar.gz
-Source1:        %{name}-node-vendor-%{version}.tar.gz
+Source1:        %{name}-vendor-%{version}.tar.gz
 %{!?_licensedir:%global _licensedir %{_datadir}/licenses}
 %global debug_package %{nil}
 %global _unpackaged_files_terminate_build 0
 
 
-BuildRequires:  go
+BuildRequires:  cargo
+BuildRequires:  rust
+BuildRequires:  gcc
+BuildRequires:  gcc-c++
 
 %description
 TUI-просмотр csv/parquet/json датасетов
@@ -27,23 +30,27 @@ Don't throw tomatoes - file issues instead.
 
 %prep
 %autosetup -N -a1 -n %{name}-%{version}
+mkdir -p .cargo
+cat > .cargo/config.toml <<'EOF'
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+EOF
 
 %build
-export GOFLAGS='-mod=vendor'
-export CGO_ENABLED=0
-export GOPATH=$(mktemp -d)
-export GOCACHE=$GOPATH/cache
-go build -trimpath -ldflags '-s -w' -o tabiew .
+cargo build --release --offline
 
 %install
-install -Dpm0755 tabiew %{buildroot}%{_bindir}/tabiew
+install -Dpm0755 target/release/tw %{buildroot}%{_bindir}/tw
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
 for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done
 %files
 %{_licensedir}/%{name}
 
-%{_bindir}/tabiew
+%{_bindir}/tw
 
 %changelog
 * Sat Sep 19 2026 candy-bot <candy@localhost> - 0-1
