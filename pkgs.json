@@ -979,7 +979,8 @@
    "bins": [
     "zenta"
    ],
-   "topdir": "%{name}-%{version}"
+   "topdir": "%{name}-%{version}",
+   "version": "1.1.0"
   },
   {
    "name": "tspace",
@@ -2025,7 +2026,7 @@
    "name": "wtfutil",
    "eco": "go",
    "host": "github",
-   "slug": "wtfutil/wtfutil",
+   "slug": "wtfutil/wtf",
    "tagp": "v",
    "summary": "Личный дашборд-терминал из модулей (ops-style)",
    "license": "MPL-2.0",
@@ -2036,7 +2037,8 @@
    "fallback": "commit",
    "use": "wtfutil — дашборд модулей",
    "prio": 2,
-   "topdir": "%{name}-%{version}"
+   "topdir": "wtf-0.50.0",
+   "version": "0.50.0"
   },
   {
    "name": "slides",
@@ -2234,7 +2236,8 @@
    "use": "zk new; zk list",
    "prio": 2,
    "gpkg": ".",
-   "topdir": "%{name}-%{version}"
+   "topdir": "%{name}-%{version}",
+   "version": "0.15.6"
   },
   {
    "name": "cyme",

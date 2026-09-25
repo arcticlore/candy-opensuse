@@ -1,10 +1,10 @@
 Name:           wtfutil
-Version:        0
+Version:        0.50.0
 Release:        1%{?dist}
 Summary:        Личный дашборд-терминал из модулей (ops-style)
 
 License:        MPL-2.0
-URL:            https://github.com/wtfutil/wtfutil
+URL:            https://github.com/wtfutil/wtf
 Source0:        %{name}-%{version}.tar.gz
 Source1:        %{name}-node-vendor-%{version}.tar.gz
 %{!?_licensedir:%global _licensedir %{_datadir}/licenses}
@@ -26,7 +26,7 @@ WARNING: this package comes from an UNOFFICIAL third-party repository
 Don't throw tomatoes - file issues instead.
 
 %prep
-%autosetup -N -a1 -n %{name}-%{version}
+%autosetup -N -a1 -n wtf-0.50.0
 
 %build
 export GOFLAGS='-mod=vendor'
@@ -46,5 +46,5 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 %{_bindir}/wtfutil
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 0.50.0-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
