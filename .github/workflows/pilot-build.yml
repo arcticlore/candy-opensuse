@@ -81,7 +81,7 @@ jobs:
 
             # stale-SRPM: удаляем старый — submit только из свежего результата make-srpm.
             rm -f SRPMS/${name}-*.src.rpm
-            if ! bin/make-srpm.sh "$name" > "logs/srpm-$name.log" 2>&1; then
+            if bin/make-srpm.sh "$name" > "logs/srpm-$name.log" 2>&1; then :; else
               rc=$?
               echo "  [FAIL] $name: make-srpm rc=$rc — хвост лога:"
               tail -12 "logs/srpm-$name.log" | sed 's/^/    /'
