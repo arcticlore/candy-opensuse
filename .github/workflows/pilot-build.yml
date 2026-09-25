@@ -69,6 +69,7 @@ jobs:
           echo "secret_interpolated_in_shell=false"
 
           BUILD_IDS=""
+          FAILED=""
           for name in $(printf '%s' "$PKGS" | tr ',' ' '); do
             name=$(echo "$name" | xargs)
             [ -z "$name" ] && continue
@@ -85,7 +86,8 @@ jobs:
               rc=$?
               echo "  [FAIL] $name: make-srpm rc=$rc — хвост лога:"
               tail -12 "logs/srpm-$name.log" | sed 's/^/    /'
-              exit 1
+              FAILED="$FAILED $name"
+              continue
             fi
 
             srpm=$(ls SRPMS/${name}-*.src.rpm 2>/dev/null | head -1)
@@ -95,27 +97,39 @@ jobs:
                 continue
               fi
               echo "  [FAIL] $name: SRPM не найден"
-              exit 1
+              FAILED="$FAILED $name"
+              continue
             fi
 
             echo "  [SUBMIT] $srpm -> $COPR_PROJECT"
             if ! copr-cli --config "$CONF" build --nowait "$COPR_PROJECT" "$srpm" > "logs/copr-$name.log" 2>&1; then
               echo "  [FAIL] $name: copr-cli rc=$? — хвост лога:"
               tail -12 "logs/copr-$name.log" | sed 's/^/    /'
-              exit 1
+              FAILED="$FAILED $name"
+              continue
             fi
             build_id=$(python3 bin/copr_waiter.py print-build-ids "logs/copr-$name.log")
             if [ -z "$build_id" ]; then
               echo "  [FAIL] $name: не удалось извлечь numeric build id из вывода copr-cli"
               sed 's/^/    /' "logs/copr-$name.log"
-              exit 1
+              FAILED="$FAILED $name"
+              continue
             fi
             echo "  [BUILD_ID] $name => $build_id"
             BUILD_IDS="$BUILD_IDS $build_id"
           done
           BUILD_IDS=$(echo "$BUILD_IDS" | xargs)
-          [ -n "$BUILD_IDS" ] || { echo "  [FAIL] нет build ids — ничего не сублимировано"; exit 1; }
-          echo "build_ids=$BUILD_IDS" >> "$GITHUB_OUTPUT"
+          if [ -n "$BUILD_IDS" ]; then
+            echo "build_ids=$BUILD_IDS" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "$FAILED" ]; then
+            echo "  [FAILED_PACKAGES] (не сублимированы):$FAILED"
+            if [ -z "$BUILD_IDS" ]; then
+              echo "  [FAIL] нет build ids — ничего не сублимировано"
+            fi
+            exit 1
+          fi
+          [ -n "$BUILD_IDS" ] || { echo "  [FAIL] ничего не обработано"; exit 1; }
         # trap EXIT гарантирует удаление CONF при success/failure/cancel (TERM/INT).
 
       - name: Wait for terminal 4/4 result (all four chroots, tolerant waiter)
