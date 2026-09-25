@@ -2071,16 +2071,15 @@
   },
   {
    "name": "tabiew",
-   "eco": "go",
+   "eco": "cargo",
    "host": "github",
-   "slug": "fathulfahmy/tabiew",
+   "slug": "shshemi/tabiew",
    "tagp": "v",
    "summary": "TUI-просмотр csv/parquet/json датасетов",
    "license": "MIT",
    "bins": [
-    "tabiew"
+    "tw"
    ],
-   "gpkg": ".",
    "fallback": "commit",
    "verify": true,
    "use": "tabiew data.csv",
