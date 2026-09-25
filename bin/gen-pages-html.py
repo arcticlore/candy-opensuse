@@ -3,7 +3,7 @@
 
 Data source: Public COPR API (no auth). Auto-refresh every 5 minutes.
 
-Beta variant: hardcoded PROJECT is candy-opensuse-beta; full pagination
+Hardcoded default PROJECT is candy-opensuse-beta (COPR project name); full pagination
 (limit=100 + offset loops) instead of a single +limit=1000 request.
 
 PROJECT is overridable via the CANDY_COPR_PROJECT env var for tests/manual use.
@@ -177,9 +177,9 @@ th:hover{{color:#fff}}
 #search:focus{{outline:none;border-color:#7dd3fc}}
 .badge{{background:#1e3a5f;border-radius:12px;padding:2px 10px;font-size:12px;margin-left:8px}}
 </style></head><body><div class="wrap">
-<div class="banner"><div class="inner"><h1>🧊 candy · openSUSE beta панель конвейера</h1>
+<div class="banner"><div class="inner"><h1>🧊 candy · openSUSE панель конвейера</h1>
 <span class="dim">автообновление 5 мин · {now} ·
-<a href="https://github.com/arcticlore/candy-opensuse-beta">GitHub</a> ·
+<a href="https://github.com/arcticlore/candy-opensuse">GitHub</a> ·
 <a href="https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse-beta/">COPR</a></span></div></div>
 
 <h2>📊 Прогресс</h2>
