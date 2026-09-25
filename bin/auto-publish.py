@@ -425,8 +425,32 @@ def parse_args(argv=None):
     return ap.parse_args(argv)
 
 
+def canonicalize(argv):
+    """Флаги можно писать как до, так и после субкоманды
+    (`plan --max-wave 5` и `--max-wave 5 plan` — одно и то же)."""
+    opts = ("--max-wave", "--force", "--confirm", "--token", "--copr-config", "--timeout-min")
+    head, tail = [], []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        matched = next((o for o in opts if a == o), None)
+        if matched and "=" not in a:
+            head.append(a)
+            if i + 1 < len(argv) and not argv[i + 1].startswith("--"):
+                head.append(argv[i + 1])
+                i += 1
+            i += 1
+            continue
+        if any(a.startswith(o) for o in opts):
+            head.append(a)
+        else:
+            tail.append(a)
+        i += 1
+    return head + tail
+
+
 def main(argv=None) -> int:
-    args = parse_args(argv)
+    args = parse_args(canonicalize(list(argv or sys.argv[1:])))
     os.chdir(Path(__file__).resolve().parent.parent)
     if args.force and not args.confirm:
         print("ABORT: --force требует --confirm (force строится только вручную)", file=sys.stderr)
