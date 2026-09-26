@@ -2128,7 +2128,7 @@
    ],
    "use": "bacon — фоновая проверка проекта",
    "prio": 2,
-   "topdir": "bacon-3.25.0"
+   "topdir": "bacon-3.26.0"
   },
   {
    "name": "kondo",
@@ -2349,7 +2349,7 @@
     "openssl-devel",
     "cmake"
    ],
-   "topdir": "mise-2026.9.11"
+   "topdir": "mise-2026.9.14"
   },
   {
    "name": "bandwhich",
