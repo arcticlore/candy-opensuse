@@ -2693,6 +2693,41 @@
    "use": "delta -- pager для git; git config core.pager delta",
    "alt": "cargo install git-delta --locked",
    "topdir": "delta-0.19.2"
-  }
+  },
+{
+ "name": "duf",
+ "eco": "go",
+ "host": "github",
+ "slug": "muesli/duf",
+ "tagp": "v",
+ "summary": "Дисковое использование в терминале (Disk Usage/Free)",
+ "license": "MIT AND BSD-3-Clause",
+ "bins": [
+  "duf"
+ ],
+ "license_file": "LICENSE",
+ "prio": 3,
+ "use": "duf",
+ "topdir": "duf-v0.9.1"
+},
+{
+ "name": "hexyl",
+ "eco": "cargo",
+ "host": "github",
+ "slug": "sharkdp/hexyl",
+ "tagp": "v",
+ "summary": "Шестнадцатеричный просмотр файлов (command-line hex viewer)",
+ "license": "MIT OR Apache-2.0",
+ "bins": [
+  "hexyl"
+ ],
+ "license_files": [
+  "LICENSE-MIT",
+  "LICENSE-APACHE"
+ ],
+ "prio": 3,
+ "use": "hexyl <файл>",
+ "topdir": "hexyl-v0.17.0"
+}
  ]
 }
