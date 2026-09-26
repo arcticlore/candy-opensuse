@@ -223,6 +223,8 @@ jobs:
           # Восстанавливаем репо локально: init + fetch origin/master, затем snapshot-коммит.
           BRANCH="candy-bot/publish-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # workspace принадлежит runner-UID, процесс — root; обходим ownership-чек.
+          git config --global --add safe.directory '*' 2>/dev/null || true
           git init -q 2>/dev/null || true
           git remote add origin "$REMOTE_URL" 2>/dev/null || git remote set-url origin "$REMOTE_URL"
           git config user.name "candy-bot"
