@@ -1,5 +1,5 @@
 Name:           oh-my-zsh
-Version:        20260919.157eb03
+Version:        20260926.74965c9
 Release:        1%{?dist}
 Summary:        Framework for managing zsh configuration with 300+ plugins
 
@@ -27,7 +27,7 @@ expect occasional breakage only on brand-new upstream versions — file issues i
 Don't throw tomatoes.
 
 %prep
-%autosetup -p1 -n ohmyzsh-157eb033f2a527021aac18c1f5850bbe3e3d223c
+%autosetup -p1 -n ohmyzsh-74965c96098134b192f00084f966b4b02438a739
 
 %build
 # чистый скрипт, сборка не требуется
@@ -44,5 +44,5 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 /usr/share/oh-my-zsh
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 20260919.157eb03-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 20260926.74965c9-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)

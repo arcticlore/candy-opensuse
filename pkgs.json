@@ -7,9 +7,9 @@
    "opensuse-leap-16.0-x86_64",
    "opensuse-leap-16.0-aarch64"
   ],
-"description": "Terminal eye candy (fetch tools, ASCII animations, modern CLI replacements) for openSUSE Tumbleweed and Leap 16.0 (x86_64 + aarch64). Unofficial community repository with 127 packages, auto-updated from upstream releases. Maintainer: arcticlore",
- "instructions": "UNOFFICIAL community repository. Use at your own risk; packages are NOT signed by the openSUSE project.\n\nEnable for openSUSE Tumbleweed (x86_64 / aarch64):\n\n  sudo zypper --non-interactive addrepo --refresh \\\n    https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse/repo/opensuse-tumbleweed-$basearch/arcticlore-candy-opensuse.repo \\\n    arcticlore-candy-opensuse\n  sudo zypper --gpg-auto-import-keys refresh arcticlore-candy-opensuse\n  sudo zypper install linuxwave\n\nFor openSUSE Leap 16.0 use opensuse-leap-16.0-$basearch in the URL instead of opensuse-tumbleweed-$basearch.\n\nMigrating from the retired candy-opensuse-beta project: remove the old repo first —\n  sudo zypper --non-interactive removerepo arcticlore-candy-opensuse-beta && sudo zypper refresh\n",
- "workers": 8
+  "description": "Terminal eye candy (fetch tools, ASCII animations, modern CLI replacements) for openSUSE Tumbleweed and Leap 16.0 (x86_64 + aarch64). Unofficial community repository with 127 packages, auto-updated from upstream releases. Maintainer: arcticlore",
+  "instructions": "UNOFFICIAL community repository. Use at your own risk; packages are NOT signed by the openSUSE project.\n\nEnable for openSUSE Tumbleweed (x86_64 / aarch64):\n\n  sudo zypper --non-interactive addrepo --refresh \\\n    https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse/repo/opensuse-tumbleweed-$basearch/arcticlore-candy-opensuse.repo \\\n    arcticlore-candy-opensuse\n  sudo zypper --gpg-auto-import-keys refresh arcticlore-candy-opensuse\n  sudo zypper install linuxwave\n\nFor openSUSE Leap 16.0 use opensuse-leap-16.0-$basearch in the URL instead of opensuse-tumbleweed-$basearch.\n\nMigrating from the retired candy-opensuse-beta project: remove the old repo first —\n  sudo zypper --non-interactive removerepo arcticlore-candy-opensuse-beta && sudo zypper refresh\n",
+  "workers": 8
  },
  "packages": [
   {
@@ -1419,7 +1419,7 @@
    "fallback": "commit",
    "use": "экспортируй ZSH=/usr/share/oh-my-zsh и source oh-my-zsh.sh в ~/.zshrc",
    "alt": "sh -c \"$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)\" (ставит в ~/.oh-my-zsh)",
-   "topdir": "ohmyzsh-157eb033f2a527021aac18c1f5850bbe3e3d223c"
+   "topdir": "ohmyzsh-74965c96098134b192f00084f966b4b02438a739"
   },
   {
    "name": "pure",

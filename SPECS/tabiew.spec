@@ -1,5 +1,5 @@
 Name:           tabiew
-Version:        0
+Version:        0.15.1
 Release:        1%{?dist}
 Summary:        TUI-просмотр csv/parquet/json датасетов
 
@@ -54,5 +54,5 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 %{_bindir}/tw
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 0.15.1-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
