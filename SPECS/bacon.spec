@@ -1,5 +1,5 @@
 Name:           bacon
-Version:        3.25.0
+Version:        3.26.0
 Release:        1%{?dist}
 Summary:        Фоновый компилятор/тестер Rust-проектов на лету
 
@@ -30,7 +30,7 @@ expect occasional breakage only on brand-new upstream versions — file issues i
 Don't throw tomatoes.
 
 %prep
-%autosetup -N -a1 -n bacon-3.25.0
+%autosetup -N -a1 -n bacon-3.26.0
 mkdir -p .cargo
 cat > .cargo/config.toml <<'EOF'
 [source.crates-io]
@@ -54,5 +54,5 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 %{_bindir}/bacon
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 3.25.0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 3.26.0-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
