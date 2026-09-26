@@ -219,25 +219,24 @@ jobs:
           GH_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # GITHUB_WORKSPACE в контейнере не всегда указывает на git-дерево;
-          # берём корень репо из текущей рабочей директории шага (она и есть репо).
-          ROOT="$(git rev-parse --show-toplevel)"
-          cd "$ROOT"
-          git config --global --add safe.directory "$ROOT" 2>/dev/null || true
+          # В контейнере f39/f40 у checkout нет .git (рабочее дерево есть, метаданные нет).
+          # Восстанавливаем репо локально: init + fetch origin/master, затем snapshot-коммит.
+          BRANCH="candy-bot/publish-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git init -q 2>/dev/null || true
+          git remote add origin "$REMOTE_URL" 2>/dev/null || git remote set-url origin "$REMOTE_URL"
           git config user.name "candy-bot"
           git config user.email "candy-bot@users.noreply.github.com"
-          git add state/state.json pkgs.json SPECS/ 2>&1 || true
-          echo "Files staged:"
-          git diff --cached --stat || true
-          if git diff --cached --quiet; then
+          git fetch -q origin master
+          if git diff --quiet origin/master -- state/state.json pkgs.json SPECS/; then
             echo "No changes to commit"
             exit 0
           fi
-          BRANCH="candy-bot/publish-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          git checkout -qb "$BRANCH" 2>/dev/null || git switch -c "$BRANCH"
+          git add -A -- state/state.json pkgs.json SPECS/ 2>&1 || true
           git commit -qm "publish sync: state targets + specs after wave ${{ steps.wave.outputs.wave_clean || 'true' }}"
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          if ! git push origin "HEAD:$BRANCH"; then
+          git reset -q --soft origin/master
+          git commit -qm "publish sync: state targets + specs after wave ${{ steps.wave.outputs.wave_clean || 'true' }}"
+          if ! git push origin "HEAD:refs/heads/$BRANCH"; then
             echo "ERROR: git push failed for $BRANCH" >&2
             exit 1
           fi
@@ -248,7 +247,7 @@ jobs:
           echo "PR created: $PR_URL"
           # Auto-merge ТОЛЬКО при точном реген-диффе (идемпотентно).
           if [ "${{ steps.regen-check.outputs.idempotent }}" = "true" ]; then
-            gh pr merge "$BRANCH" --auto --squash --delete-branch \
+            gh pr merge "$PR_URL" --auto --squash --delete-branch \
               || echo "WARN: auto-merge не включён (checks ещё не зелёные — это штатно)" >&2
           else
             echo "INFO: auto-merge отключён (regen не идемпотентен)"
