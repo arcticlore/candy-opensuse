@@ -653,7 +653,9 @@
    "prio": 3,
    "use": "lavat — лава-лампа; клавиши +/- меняют скорость",
    "noman": true,
-   "topdir": "%{name}-%{version}"
+   "topdir": "%{name}-%{version}",
+   "release": 2,
+   "license_file": "LICENSE"
   },
   {
    "name": "tty-clock",

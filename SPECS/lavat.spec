@@ -1,6 +1,6 @@
 Name:           lavat
 Version:        3.0.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Lava lamp in the terminal
 
 License:        MIT
@@ -40,8 +40,9 @@ install -Dpm0755 lavat %{buildroot}%{_bindir}/lavat
 mkdir -p %{buildroot}%{_licensedir}/%{name}
 for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done
 %files
+%license %{_licensedir}/%{name}/LICENSE
 %{_bindir}/lavat
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 3.0.0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 3.0.0-2
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)

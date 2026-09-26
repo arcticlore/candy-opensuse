@@ -73,6 +73,8 @@ class Package:
     prep_extra: str = ""
     assets: dict[str, str] = field(default_factory=dict)
     man1: bool = False
+    release: int = 1
+    license_file: str = ""
 
     def is_enabled(self) -> bool:
         """Check if package is enabled."""
@@ -160,6 +162,8 @@ def load_pkgs(path: Path) -> PkgsFile:
                 prep_extra=p.get("prep_extra", ""),
                 assets=p.get("assets", {}),
                 man1=p.get("man1", False),
+                release=p.get("release", 1),
+                license_file=p.get("license_file", ""),
             )
         )
 
@@ -284,7 +288,7 @@ def header(m: Package, ver: str) -> list[str]:
     lines = [
         f"Name:           {m.name}",
         f"Version:        {ver}",
-        "Release:        1%{?dist}",
+        f"Release:        {m.release}%{{?dist}}",
         f"Summary:        {esc(m.summary or m.name)}",
     ]
 
@@ -941,6 +945,16 @@ def render(name: str, ver: str, meta: dict[str, Package]) -> str:
     body = re.sub(r"^%license .*$", "%{_licensedir}/%{name}", body, flags=re.MULTILINE)
     body = re.sub(r"^%doc .*$", "", body, flags=re.MULTILINE)
 
+    # Opt-in packaging лицензии (m.license_file): тело без %license-директивы
+    # (c-, meson-экосистемы) не упаковывало вручную скопированную лицензию.
+    # Выносим файл лицензии явно, используя установочный путь (ручное копирование
+    # через lic_inst остаётся единственным способом установки — без дублей).
+    if m.license_file and "\n%files" in body:
+        lic_entry = f"%license %{{_licensedir}}/%{{name}}/{m.license_file}"
+        if lic_entry not in body:
+            pos = body.index("\n%files") + len("\n%files")
+            body = body[:pos] + "\n" + lic_entry + body[pos:]
+
     # Split tags and sections
     tags, _, secs = body.partition("\n%prep")
     if _:
@@ -980,7 +994,7 @@ def render(name: str, ver: str, meta: dict[str, Package]) -> str:
     parts += [
         "",
         "%changelog",
-        f"* {today} candy-bot <candy@localhost> - {ver}-1",
+        f"* {today} candy-bot <candy@localhost> - {ver}-{m.release}",
         "- Автосборка из апстрим-релиза (terminal-eye-candy pipeline)",
         "",
     ]
