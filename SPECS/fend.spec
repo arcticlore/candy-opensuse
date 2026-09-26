@@ -1,5 +1,5 @@
 Name:           fend
-Version:        0
+Version:        1.5.8
 Release:        1%{?dist}
 Summary:        Калькулятор произвольной точности
 
@@ -54,5 +54,5 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 %{_bindir}/fend
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.5.8-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)

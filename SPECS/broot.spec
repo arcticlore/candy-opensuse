@@ -1,5 +1,5 @@
 Name:           broot
-Version:        1.60.1
+Version:        1.60.2
 Release:        1%{?dist}
 Summary:        Дерево каталогов с навигацией и предпросмотром
 
@@ -30,7 +30,7 @@ expect occasional breakage only on brand-new upstream versions — file issues i
 Don't throw tomatoes.
 
 %prep
-%autosetup -N -a1 -n broot-1.60.1
+%autosetup -N -a1 -n broot-1.60.2
 mkdir -p .cargo
 cat > .cargo/config.toml <<'EOF'
 [source.crates-io]
@@ -54,5 +54,5 @@ for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && c
 %{_bindir}/broot
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.60.1-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.60.2-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
