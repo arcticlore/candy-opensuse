@@ -2760,6 +2760,38 @@
    "prio": 3,
    "use": "tarts <эффект>",
    "topdir": "tarts-v0.1.25"
+  },
+  {
+   "name": "dust",
+   "eco": "cargo",
+   "host": "github",
+   "slug": "bootandy/dust",
+   "tagp": "v",
+   "summary": "Более интуитивное du (disk usage)",
+   "license": "Apache-2.0",
+   "bins": [
+    "dust"
+   ],
+   "license_file": "LICENSE",
+   "prio": 3,
+   "use": "dust /path — таблица размеров каталогов",
+   "topdir": "dust-v1.2.6"
+  },
+  {
+   "name": "csvlens",
+   "eco": "cargo",
+   "host": "github",
+   "slug": "YS-L/csvlens",
+   "tagp": "v",
+   "summary": "Удобный просмотр CSV в терминале",
+   "license": "MIT",
+   "bins": [
+    "csvlens"
+   ],
+   "license_file": "LICENSE",
+   "prio": 3,
+   "use": "csvlens file.csv — TUI-просмотр CSV",
+   "topdir": "csvlens-v0.15.1"
   }
  ]
 }
