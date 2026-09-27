@@ -75,7 +75,6 @@ class Package:
     man1: bool = False
     release: int = 1
     license_file: str = ""
-    license_files: list[str] = field(default_factory=list)
 
     def is_enabled(self) -> bool:
         """Check if package is enabled."""
@@ -165,7 +164,6 @@ def load_pkgs(path: Path) -> PkgsFile:
                 man1=p.get("man1", False),
                 release=p.get("release", 1),
                 license_file=p.get("license_file", ""),
-                license_files=p.get("license_files", []),
             )
         )
 
@@ -944,29 +942,18 @@ def render(name: str, ver: str, meta: dict[str, Package]) -> str:
     if "\n%files" in body:
         body = body.replace("\n%files", lic_inst + "\n%files", 1)
 
+    body = re.sub(r"^%license .*$", "%{_licensedir}/%{name}", body, flags=re.MULTILINE)
     body = re.sub(r"^%doc .*$", "", body, flags=re.MULTILINE)
 
-    # Opt-in packaging лицензии. license_files (список, напр. hexyl: MIT+Apache)
-    # приоритетнее одиночного license_file — обратная совместимость полная.
-    lic_files = list(m.license_files) if m.license_files else (
-        [m.license_file] if m.license_file else [])
-
-    if lic_files:
-        # %license-строка тела (cargo: "%license LICENSE* COPYRIGHT*") разворачивается
-        # в явные %license-записи по каждому файлу. Без этого она превратилась бы в
-        # %{_licensedir}/%{name} (каталог целиком) и файл дублировался бы дважды.
-        lic_lines = "\n".join(
-            f"%license %{{_licensedir}}/%{{name}}/{f}" for f in lic_files)
-        body, n_rep = re.subn(
-            r"^%license .*$", lambda _m: lic_lines, body, flags=re.MULTILINE)
-        if not n_rep and "\n%files" in body:
+    # Opt-in packaging лицензии (m.license_file): тело без %license-директивы
+    # (c-, meson-экосистемы) не упаковывало вручную скопированную лицензию.
+    # Выносим файл лицензии явно, используя установочный путь (ручное копирование
+    # через lic_inst остаётся единственным способом установки — без дублей).
+    if m.license_file and "\n%files" in body:
+        lic_entry = f"%license %{{_licensedir}}/%{{name}}/{m.license_file}"
+        if lic_entry not in body:
             pos = body.index("\n%files") + len("\n%files")
-            body = body[:pos] + "\n" + lic_lines + body[pos:]
-    else:
-        # Без pinned-файлов лицензия живёт каталогом %{_licensedir}/%{name}
-        # (тело уже содержит ручное копирование LICENSE* через lic_inst).
-        body = re.sub(r"^%license .*$", "%{_licensedir}/%{name}", body,
-                      flags=re.MULTILINE)
+            body = body[:pos] + "\n" + lic_entry + body[pos:]
 
     # Split tags and sections
     tags, _, secs = body.partition("\n%prep")
