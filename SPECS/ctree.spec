@@ -40,7 +40,7 @@ go build -trimpath -ldflags '-s -w' -o ctree .
 install -Dpm0755 ctree %{buildroot}%{_bindir}/ctree
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
-for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done
+for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done
 %files
 %{_licensedir}/%{name}
 

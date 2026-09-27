@@ -40,7 +40,7 @@ go build -trimpath -ldflags '-s -w' -o zk .
 install -Dpm0755 zk %{buildroot}%{_bindir}/zk
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
-for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done
+for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done
 %files
 %{_licensedir}/%{name}
 

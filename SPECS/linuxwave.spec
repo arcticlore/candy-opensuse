@@ -48,7 +48,7 @@ install -Dm0644 "$TMPD/%{name}-%{version}/LICENSE" %{buildroot}%{_licensedir}/%{
 rm -rf "$TMPD"
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
-for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done
+for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done
 %files
 %{_bindir}/linuxwave
 %{_licensedir}/%{name}

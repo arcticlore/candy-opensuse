@@ -39,7 +39,7 @@ install -Dpm0755 bin/arttime %{buildroot}%{_bindir}/arttime
 install -Dpm0755 bin/artprint %{buildroot}%{_bindir}/artprint
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
-for f in LICENSE* LICEN[CS]E.MD COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done
+for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done
 %files
 %{_licensedir}/%{name}
 
