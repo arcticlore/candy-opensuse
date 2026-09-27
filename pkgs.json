@@ -2792,6 +2792,37 @@
    "prio": 3,
    "use": "csvlens file.csv — TUI-просмотр CSV",
    "topdir": "csvlens-v0.15.1"
+  },
+  {
+   "name": "ov",
+   "eco": "go",
+   "host": "github",
+   "slug": "noborus/ov",
+   "tagp": "v",
+   "summary": "Терминальный просмотрщик файлов (реализация less в Go)",
+   "license": "MIT",
+   "bins": [
+    "ov"
+   ],
+   "prio": 3,
+   "use": "ov file|data — просмотр с подсветкой",
+   "topdir": "ov-v0.54.0"
+  },
+  {
+   "name": "jnv",
+   "eco": "cargo",
+   "host": "github",
+   "slug": "ynqa/jnv",
+   "tagp": "v",
+   "summary": "Интерактивный просмотр JSON с jq-фильтром",
+   "license": "MIT",
+   "bins": [
+    "jnv"
+   ],
+   "license_file": "LICENSE",
+   "prio": 3,
+   "use": "jnv data.json — интерактивный jq",
+   "topdir": "jnv-v0.7.1"
   }
  ]
 }
