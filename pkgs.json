@@ -2823,6 +2823,38 @@
    "prio": 3,
    "use": "jnv data.json — интерактивный jq",
    "topdir": "jnv-v0.7.1"
+  },
+  {
+   "name": "tailspin",
+   "eco": "cargo",
+   "host": "github",
+   "slug": "bensadeh/tailspin",
+   "tagp": "",
+   "summary": "Хайлайтер лог-файлов (tail с подсветкой синтаксиса)",
+   "license": "MIT",
+   "bins": [
+    "tspin"
+   ],
+   "license_file": "LICENCE",
+   "prio": 3,
+   "use": "tailspin -f app.log",
+   "topdir": "tailspin-7.0.0"
+  },
+  {
+   "name": "tetro-tui",
+   "eco": "cargo",
+   "host": "github",
+   "slug": "Strophox/tetro-tui",
+   "tagp": "v",
+   "summary": "Терминальный тетрис с настройками",
+   "license": "MIT",
+   "bins": [
+    "tetro-tui"
+   ],
+   "license_file": "LICENSE",
+   "prio": 3,
+   "use": "tetro-tui",
+   "topdir": "tetro-tui-v3.6.2"
   }
  ]
 }
