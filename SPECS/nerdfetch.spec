@@ -19,7 +19,7 @@ Requires:       bash
 POSIX nix fetch script using Nerdfonts
 
 ВНИМАНИЕ: пакет из неофициального стороннего репозитория arcticlore/candy-opensuse.
-Серийная (stable) сборка 127 пакетов для Tumbleweed и Leap 16.0; возможны редкие
+Серийная (stable) сборка 137 пакетов для Tumbleweed и Leap 16.0; возможны редкие
 поломки на свежих релизах апстрима — заводите issue, помидоры не кидаем.
 
 WARNING: this package comes from an UNOFFICIAL third-party repository
