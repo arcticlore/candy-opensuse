@@ -89,8 +89,22 @@ class TestTreeHash:
 class TestRealRepoGate:
     """Гейт на реальном дереве репозитория (лёгкий, без сборок)."""
 
-    def test_dirty_code_tree_fails_gate(self, gate):
+    def test_code_change_fails_gate(self, gate, monkeypatch):
         """Правки bin/ или .github/ не должны проходить как «чистый реген»."""
+        monkeypatch.setattr(gate, "git_changed_paths",
+                            lambda root: ["bin/gen_specs.py"])
+        assert gate.main([ROOT]) == 1
+
+    def test_scoped_change_passes_gate(self, gate, monkeypatch):
+        """Независимо от чистоты дерева чекаута: только SPECS/state/pkgs."""
+        monkeypatch.setattr(gate, "git_changed_paths",
+                            lambda root: ["SPECS/duf.spec", "state/state.json",
+                                          "pkgs.json"])
+        assert gate.main([ROOT]) == 0
+
+    def test_workflow_change_fails_gate(self, gate, monkeypatch):
+        monkeypatch.setattr(gate, "git_changed_paths",
+                            lambda root: [".github/workflows/update.yml"])
         assert gate.main([ROOT]) == 1
 
     def test_repo_specs_match_enabled(self, gate):
