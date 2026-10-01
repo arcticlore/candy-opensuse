@@ -5,7 +5,7 @@
 ![candy](assets/banner.svg)
 
 ![COPR](https://img.shields.io/badge/COPR-arcticlore%2Fcandy--opensuse-blue)
-![packages](https://img.shields.io/badge/packages-127-4E9A06)
+![packages](https://img.shields.io/badge/packages-137-4E9A06)
 ![chroots](https://img.shields.io/badge/openSUSE-Tumbleweed%20%7C%20Leap%2016.0-73BA25)
 ![arch](https://img.shields.io/badge/x86__64%20%7C%20aarch64)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -15,7 +15,7 @@
 **Unofficial stable COPR repository of terminal eye-candy for openSUSE**
 (a port of [candy-rpm](https://github.com/arcticlore/candy-rpm))
 
-**127 packages** · auto-updated daily · **x86_64 + aarch64**
+**137 packages** · auto-updated daily · **x86_64 + aarch64**
 *opensuse-tumbleweed · opensuse-leap-16.0*
 
 </div>
@@ -42,7 +42,7 @@ For **Leap 16.0** replace `tumbleweed` with `leap-16.0` in the URL.
 ### Migrating from the retired beta
 
 The old `arcticlore/candy-opensuse-beta` channel is **retired and read-only**.
-All 127 verified beta packages have moved to stable:
+All 137 verified beta packages have moved to stable:
 
 ```bash
 sudo zypper removerepo arcticlore-candy-opensuse-beta
@@ -56,7 +56,7 @@ sudo zypper --gpg-auto-import-keys refresh
 
 | | |
 |---|---|
-| 🐙 **GitHub** | [arcticlore/candy-opensuse-beta](https://github.com/arcticlore/candy-opensuse-beta) |
+| 🐙 **GitHub** | [arcticlore/candy-opensuse](https://github.com/arcticlore/candy-opensuse) |
 | 📦 **COPR (stable)** | [arcticlore/candy-opensuse](https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse/) |
 | 🧪 **COPR (pilot)** | [arcticlore/candy-opensuse-pilot](https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse-pilot/) |
 | 🧊 **COPR (retired beta)** | [arcticlore/candy-opensuse-beta](https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse-beta/) |
@@ -161,7 +161,7 @@ only on an exact regenerated diff with green required checks.
 
 ## 🤝 Contact
 
-- 🐛 Bugs / package requests — [Issues](https://github.com/arcticlore/candy-opensuse-beta/issues)
+- 🐛 Bugs / package requests — [Issues](https://github.com/arcticlore/candy-opensuse/issues)
 - 💬 More candy for Fedora — [candy-rpm](https://github.com/arcticlore/candy-rpm)
 
 ## 📄 License

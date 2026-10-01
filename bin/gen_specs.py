@@ -988,9 +988,11 @@ def render(name: str, ver: str, meta: dict[str, Package]) -> str:
             "",
         ]
 
+    enabled_n = sum(1 for x in meta.values() if x.is_enabled())
+
     desc_block += [
         "ВНИМАНИЕ: пакет из неофициального стороннего репозитория arcticlore/candy-opensuse.",
-        "Серийная (stable) сборка 127 пакетов для Tumbleweed и Leap 16.0; возможны редкие",
+        f"Серийная (stable) сборка {enabled_n} пакетов для Tumbleweed и Leap 16.0; возможны редкие",
         "поломки на свежих релизах апстрима — заводите issue, помидоры не кидаем.",
         "",
         "WARNING: this package comes from an UNOFFICIAL third-party repository",

@@ -15,7 +15,7 @@
 ## Статус
 
 - COPR-проект: https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse/
-- Пакетов: **127**
+- Пакетов: **137**
 - Чруты: `opensuse-tumbleweed-x86_64`, `opensuse-tumbleweed-aarch64`,
   `opensuse-leap-16.0-x86_64`, `opensuse-leap-16.0-aarch64`
 - Сборка: GitHub Actions → COPR. Каждый пакет сначала проходит **pilot**
@@ -33,7 +33,7 @@ sudo zypper addrepo --refresh \
   "https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse/repo/opensuse-tumbleweed-$basearch/arcticlore-candy-opensuse.repo" \
   arcticlore-candy-opensuse
 sudo zypper --gpg-auto-import-keys refresh
-sudo zypper install linuxwave   # или любой другой из 127 пакетов
+sudo zypper install linuxwave   # или любой другой из 137 пакетов
 ```
 
 Для Leap 16.0 замените `tumbleweed` в URL на `leap-16.0`.
@@ -41,7 +41,7 @@ sudo zypper install linuxwave   # или любой другой из 127 пак
 ### Миграция с боёвки (candy-opensuse-beta)
 
 Боёвка `arcticlore/candy-opensuse-beta` **выведена из эксплуатации** и открыта
-только на чтение. На stable уже перенесены все 127 проверенных пакетов beta:
+только на чтение. На stable уже перенесены все 137 проверенных пакетов beta:
 
 ```sh
 sudo zypper removerepo arcticlore-candy-opensuse-beta
@@ -77,7 +77,7 @@ sudo zypper --gpg-auto-import-keys refresh
 
 | Проект | Роль |
 |--------|------|
-| `arcticlore/candy-opensuse` | **production stable**: 127 пакетов, сервируется юзерам |
+| `arcticlore/candy-opensuse` | **production stable**: 137 пакетов, сервируется юзерам |
 | `arcticlore/candy-opensuse-pilot` | **staging**: свежие версии обкатываются на 4 chroot |
 | `arcticlore/candy-opensuse-beta` | **retired**: старая боёвка, read-only, перенесена в stable |
 
