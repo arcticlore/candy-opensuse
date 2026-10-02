@@ -125,6 +125,45 @@ def parse_primary(blob: bytes) -> dict[str, set[str]]:
     return table
 
 
+def fetch_published_per_chroot(project: str, chroots: Iterable[str],
+                               owner: str = "arcticlore",
+                               dl_base: str = DEFAULT_DL_BASE,
+                               timeout: int = 60) -> list[dict[str, set[str]]]:
+    """Таблицы опубликованных пакетов ПО КАЖДОМУ chroot, в порядке chroots."""
+    out: list[dict[str, set[str]]] = []
+    for chroot in chroots:
+        root = DL_TMPL.format(dl=dl_base.rstrip("/"), owner=owner, project=project,
+                             chroot=chroot)
+        href = _primary_href(root, timeout)
+        blob = _fetch(f"{root}{href}", timeout, binary=True)
+        out.append(parse_primary(blob))
+    return out
+
+
+def completed_table(per_chroot: list[dict[str, set[str]]]) -> dict[str, set[str]]:
+    """Версии, опубликованные ВО ВСЕХ chroot сразу (пересечение).
+
+    fetch_published() объединяет версии по union — это нужно анти-даунгрейду
+    («есть ли где-то новее цели»), но как признак «цель достигнута» union
+    опасен: версия, попавшая в ОДИН chroot из четырёх, выглядит как
+    опубликованная везде, и волна посчитает 3/4 за 4/4.
+    """
+    if not per_chroot:
+        return {}
+    names = set(per_chroot[0])
+    for table in per_chroot[1:]:
+        names &= set(table)
+    out: dict[str, set[str]] = {}
+    for name in names:
+        shared = set(per_chroot[0].get(name, set()))
+        for table in per_chroot[1:]:
+            shared &= table.get(name, set())
+        shared.discard("")
+        if shared:
+            out[name] = shared
+    return out
+
+
 def fetch_published(project: str, chroots: Iterable[str], owner: str = "arcticlore",
                     dl_base: str = DEFAULT_DL_BASE, timeout: int = 60) -> dict[str, set[str]]:
     """Объединённая по chroot таблица опубликованных пакетов проекта."""

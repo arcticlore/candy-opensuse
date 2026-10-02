@@ -387,20 +387,20 @@ class TestPublishedGroundTruth:
         """Регрессия live-инцидента: 5 уже опубликованных пакетов попадали в план."""
         pkgs = [self._pkg("bandwhich", prio=i) for i in range(5)]
         versions = {"bandwhich": "0.23.1"}
-        stable_pub = {"bandwhich": {"0.23.1"}}
-        pilot_pub = {"bandwhich": {"0.23.1"}}
+        done = {"bandwhich": {"0.23.1"}}
         plan = mod.build_plan(pkgs, versions, {}, 5, stable_hist={},
-                              pilot_published=pilot_pub,
-                              stable_published=stable_pub)
+                              pilot_published=done, stable_published=done,
+                              pilot_completed=done, stable_completed=done)
         assert plan == []
 
     def test_repodata_closes_gap_without_build_list_success(self, mod):
         """Зелёной записи в build-list нет, но версия опубликована — работа не нужна."""
         pkgs = [self._pkg("csview")]
         versions = {"csview": "1.3.4"}
+        done = {"csview": {"1.3.4"}}
         plan = mod.build_plan(pkgs, versions, {}, 5, stable_hist={},
-                              pilot_published={"csview": {"1.3.4"}},
-                              stable_published={"csview": {"1.3.4"}})
+                              pilot_published=done, stable_published=done,
+                              pilot_completed=done, stable_completed=done)
         assert plan == []
 
     def test_stable_gap_still_planned_even_if_pilot_published(self, mod):
@@ -408,7 +408,9 @@ class TestPublishedGroundTruth:
         versions = {"pybonsai": "1.0.0"}
         plan = mod.build_plan(pkgs, versions, {}, 5, stable_hist={},
                               pilot_published={"pybonsai": {"1.0.0"}},
-                              stable_published={})
+                              stable_published={},
+                              pilot_completed={"pybonsai": {"1.0.0"}},
+                              stable_completed={})
         assert [p["name"] for p in plan] == ["pybonsai"]
         assert plan[0]["mode"] == "promote-only"
 
@@ -540,3 +542,172 @@ class TestArgParsing:
         assert mod.main(["run", "--force"]) == 1
         err = capfd.readouterr().err
         assert "--confirm" in err
+
+class TestPartialChrootRemediation:
+    """Сценарий 3/4 -> повтор только недостающего chroot -> агрегированные 4/4.
+
+    Реальный кейс 2026-10-02 (dysk/dua/ghfetch/pokemon-icat): COPR собрал 3 из
+    4 chroot, четвёртый упал по внешней причине. Ключевые инварианты:
+      * одна неуспешная сборка НЕ считается 4/4 и не двигает пакет в stable;
+      * версия, опубликованная лишь в 3 из 4 repodata, НЕ закрывает цель
+        (union-таблица для этого не годится);
+      * повтор не пересобирает уже зелёные chroot и не дублирует SRPM;
+      * когда все четыре chroot опубликованы, цель закрывается и пакет идёт
+        в stable в режиме promote-only с тем же SRPM.
+    """
+
+    CHROOTS = ["tw-x86_64", "tw-aarch64", "leap-x86_64", "leap-aarch64"]
+
+    def _pkg(self, name="dysk", **kw):
+        base = {"name": name, "prio": 5, "enabled": True}
+        base.update(kw)
+        return base
+
+    def test_three_of_four_chroots_is_not_four_of_four(self, mod):
+        """3/4 в repodata => цель НЕ достигнута, пакет остаётся в плане."""
+        union = {"dysk": {"3.7.1"}}                    # есть хоть где-то
+        completed = {}                                  # нет нигде во всех сразу
+        plan = mod.build_plan([self._pkg()], {"dysk": "3.7.1"}, {}, 5, stable_hist={},
+                              pilot_published=union, stable_published={},
+                              pilot_completed=completed, stable_completed={})
+        assert [p["name"] for p in plan] == ["dysk"]
+
+    def test_union_table_alone_never_counts_as_done(self, mod):
+        """Регрессия P0: union-таблица не должна закрывать цель."""
+        union = {"dysk": {"3.7.1"}}
+        plan = mod.build_plan([self._pkg()], {"dysk": "3.7.1"}, {}, 5, stable_hist={},
+                              pilot_published=union, stable_published=union,
+                              pilot_completed={}, stable_completed={})
+        assert plan, "union-репо не должен засчитываться как 4/4"
+
+    def test_aggregated_four_of_four_closes_gap(self, mod):
+        """Как только версия опубликована во всех 4 chroot — цель закрыта."""
+        done = {"dysk": {"3.7.1"}}
+        plan = mod.build_plan([self._pkg()], {"dysk": "3.7.1"}, {}, 5, stable_hist={},
+                              pilot_published=done, stable_published={},
+                              pilot_completed=done, stable_completed={})
+        assert [p["name"] for p in plan] == ["dysk"]        # stable ещё пуст
+        assert plan[0]["mode"] == "promote-only"             # pilot-зелёный => без пересборки
+        assert plan[0]["pilot_build"] is None                # pilot не пересобираем
+
+    def test_completed_table_is_intersection_not_union(self, mod):
+        per_chroot = [
+            {"dysk": {"3.7.1"}, "gum": {"2.0.2"}},   # tw-x86_64
+            {"dysk": {"3.7.1"}, "gum": {"2.0.2"}},   # tw-aarch64 (3.7.1 есть)
+            {"dysk": {"3.7.1"}, "gum": {"2.0.2"}},   # leap-x86_64 (3.7.1 есть)
+            {"dysk": {"3.7.0"}, "gum": {"2.0.2"}},   # leap-aarch64: dysk СТАРАЯ версия
+        ]
+        done = mod.completed_table(per_chroot)
+        assert "dysk" not in done, "3.7.1 не во всех chroot => не completed"
+        assert done["gum"] == {"2.0.2"}               # 2.0.2 есть во всех четырёх
+        assert mod.completed_table([]) == {}
+        # union-таблица для сравнения: там 3.7.1 «есть» — и она не должна решать
+        union: dict = {}
+        for t in per_chroot:
+            for n, vs in t.items():
+                union.setdefault(n, set()).update(vs)
+        assert "3.7.1" in union["dysk"]
+        assert "3.7.1" in union["dysk"] and "dysk" not in done
+
+    def test_completed_table_drops_package_absent_from_any_chroot(self, mod):
+        per_chroot = [{"gum": {"2.0.2"}}, {"gum": {"2.0.2"}}, {}, {"gum": {"2.0.2"}}]
+        assert mod.completed_table(per_chroot) == {}
+
+    def test_failed_chroot_gives_pilot_not_clean_and_no_stable(self, mod, tmp_path,
+                                                               monkeypatch):
+        """3/4 терминально => pilot-not-clean, stable не submit'ится."""
+        submits = []
+        monkeypatch.setattr(mod, "make_srpm", lambda *a, **kw: "srpm")
+        monkeypatch.setattr(mod, "sha256_file", lambda p: "deadbeef")
+        monkeypatch.setattr(mod, "submit",
+                            lambda p, s, c: (submits.append(p), "11065000")[1])
+        seen = {"tw-x86_64": "succeeded", "tw-aarch64": "succeeded",
+                "leap-x86_64": "succeeded", "leap-aarch64": "failed"}
+        monkeypatch.setattr(mod, "wait_exact_4_4",
+                            lambda *a, **kw: (1, seen, "3/4"))
+        monkeypatch.setattr(mod, "build_still_active", lambda *a, **kw: False)
+        pkg = {"name": "dysk", "target": "3.7.1", "pilot_build": None,
+               "stable_build": None, "pilot_ok": False, "stable_ok": False,
+               "mode": "full", "force": False}
+        res = mod.process_package(pkg, self.CHROOTS, None, None, tmp_path / "logs",
+                                  1.0, {}, [])
+        assert res["outcome"] == "pilot-not-clean"
+        assert submits == [mod.PILOT]
+        assert res["pilot_chroots"]["leap-aarch64"] == "failed"
+
+    def test_single_chroot_build_is_not_success(self, mod, tmp_path, monkeypatch):
+        """Одиночная сборка одного chroot (как наш canary) != 4/4."""
+        seen = {"tw-aarch64": "succeeded", "tw-x86_64": "missing",
+                "leap-x86_64": "missing", "leap-aarch64": "missing"}
+        monkeypatch.setattr(mod, "make_srpm", lambda *a, **kw: "srpm")
+        monkeypatch.setattr(mod, "sha256_file", lambda p: "deadbeef")
+        monkeypatch.setattr(mod, "submit", lambda p, s, c: "11065107")
+        monkeypatch.setattr(mod, "wait_exact_4_4", lambda *a, **kw: (1, seen, "1/4"))
+        monkeypatch.setattr(mod, "build_still_active", lambda *a, **kw: False)
+        pkg = {"name": "dysk", "target": "3.7.1", "pilot_build": 11064066,
+               "stable_build": None, "pilot_ok": False, "stable_ok": False,
+               "mode": "full", "force": False}
+        res = mod.process_package(pkg, self.CHROOTS, None, None, tmp_path / "logs",
+                                  1.0, {}, [])
+        assert res["outcome"] != "promoted"
+        assert res["outcome"] == "pilot-not-clean"
+        assert res.get("pilot_resumed") is True      # наблюдение, не resubmit
+
+    def test_missing_chroot_retry_then_promote_only_same_srpm(self, mod, tmp_path,
+                                                               monkeypatch):
+        """Повтор, давший 4/4, ведёт в stable в promote-only с ТЕМ ЖЕ SRPM."""
+        calls = {}
+
+        def fake_fetch(name, target, builds, dest_dir):
+            calls["fetch"] = (name, target)
+            p = dest_dir / "dysk-3.7.1-1.fc44.src.rpm"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"srpm-bytes")
+            return str(p), "657699b7", 11064066
+
+        monkeypatch.setattr(mod, "fetch_pilot_srpm", fake_fetch)
+        monkeypatch.setattr(mod, "submit", lambda p, s, c: calls.setdefault("submit", p) and None or "11065107")
+        monkeypatch.setattr(mod, "wait_exact_4_4",
+                            lambda *a, **kw: (0, {c: "succeeded" for c in self.CHROOTS}, "4/4"))
+        pkg = {"name": "dysk", "target": "3.7.1", "pilot_build": None,
+               "stable_build": None, "pilot_ok": True, "stable_ok": False,
+               "mode": "promote-only", "force": False}
+        res = mod.process_package(pkg, self.CHROOTS, None, None, tmp_path / "logs",
+                                  1.0, {}, [])
+        assert res["outcome"] == "promoted"
+        assert calls["fetch"] == ("dysk", "3.7.1")
+        assert res["srpm_source"] == "pilot-build:11064066"   # тот же артефакт
+        assert calls["submit"] == mod.STABLE                  # pilot не пересобирался
+
+    def test_deferred_when_copr_slower_than_job(self, mod, tmp_path, monkeypatch):
+        """Таймаут наблюдения при живой сборке => deferred, а не провал и не успех."""
+        monkeypatch.setattr(mod, "make_srpm", lambda *a, **kw: "srpm")
+        monkeypatch.setattr(mod, "sha256_file", lambda p: "deadbeef")
+        monkeypatch.setattr(mod, "submit", lambda p, s, c: "11066000")
+        monkeypatch.setattr(mod, "wait_exact_4_4", lambda *a, **kw: (1, {}, "timeout"))
+        monkeypatch.setattr(mod, "build_still_active", lambda *a, **kw: True)
+        pkg = {"name": "dysk", "target": "3.7.1", "pilot_build": None,
+               "stable_build": None, "pilot_ok": False, "stable_ok": False,
+               "mode": "full", "force": False}
+        res = mod.process_package(pkg, self.CHROOTS, None, None, tmp_path / "logs",
+                                  1.0, {}, [])
+        assert res["outcome"] == "deferred"
+        assert res["deferred_stage"] == "pilot"
+        assert str(res["pilot_build"]) == "11066000"
+        assert res["outcome"] not in mod.SUCCESS_OUTCOMES
+
+    def test_active_build_is_resumed_not_resubmitted(self, mod):
+        """Следующая волна берёт существующий build id, а не submit'ит дубль."""
+        hist = {"dysk": [("running", "3.7.1-1.fc44", 11066000)]}
+        assert mod.active_build(hist["dysk"], "3.7.1") == 11066000
+        plan = mod.build_plan([self._pkg()], {"dysk": "3.7.1"},
+                              {"dysk": [("running", "3.7.1-1.fc44", 11066000)]},
+                              5, stable_hist={}, pilot_published={}, stable_published={},
+                              pilot_completed={}, stable_completed={})
+        assert plan[0]["pilot_build"] == 11066000     # resume, не новый submit
+
+    def test_deferred_is_reported_as_failure_of_run_but_not_hard(self, mod):
+        items = [{"name": "dysk", "outcome": "deferred"},
+                 {"name": "gum", "outcome": "promoted"}]
+        assert [i["name"] for i in mod.deferred_items(items)] == ["dysk"]
+        assert [i["name"] for i in mod.failed_items(items)] == ["dysk"]

@@ -1,56 +1,38 @@
-name: pilot→stable wave publish (opensuse)
-# Волновой автоматический конвейер openSUSE:
-#   ежедневный schedule + ручной dispatch — ТОЛЬКО новые версии (цели из
-#   state.json, не достигнутые зелёным в pilot) и волна размером max_wave.
-#   Каждый пакет: fresh SRPM -> pilot (exact 4/4) -> тот же SRPM -> stable
-#   (exact 4/4). Жёсткий гейт: failed/canceled/skipped/missing/timeout/API-error
-#   никогда не считаются успехом и НЕ продвигают пакет в stable.
-#   Безопасность:
-#   - пустая волна / «уже всё зелёное» => закончить без действий;
-#   - активные сборки в pilot/stable НЕ дублируются (resume по build id);
-#   - --force (полный ребилд) ТОЛЬКО вручную: workflow_dispatch + full_rebuild=true
-#     + confirm_full_rebuild=true + actor из MAINTAINER_ALLOWLIST. Никогда на schedule.
-#   - schedule жёстко changed-only: без --force берутся только целевые версии из
-#     state.json, не достигнутые зелёным в pilot; «всё зелёное» => выход без submit.
-#   - emergency brake: переменная репозитория CANDY_PUBLISH_PAUSE=true останавливает.
-#
-#   ПОЧЕМУ НЕТ `environment: candy-production`:
-#     у окружения были required_reviewers, поэтому scheduled-run навсегда зависал
-#     в статусе waiting и требовал ручного approve каждую ночь — конвейер был
-#     мёртвым. Вместо reviewer-гейта у полного ребилда явные машинные гейты
-#     (см. Scope check): schedule никогда не может включить --force, а ручной
-#     ребилд требует двух boolean-подтверждений и actor из allowlist.
-#   - bot PR (state+SPECS) авто-мержится ТОЛЬКО при exact-regen diff и зелёных
-#     required checks; при любых не-чистых исходах волны — PR без auto-merge.
+name: Update openSUSE pilot→stable packages
+
+# Весь run сериализуется: две одновременные волны построят дубли и будут
+# драться за одни и те же chroot. cancel-in-progress:false — текущая волна
+# дорабатывается, следующая ждёт в очереди (и продолжает её по build id).
+concurrency:
+  group: opensuse-auto-publish
+  cancel-in-progress: false
+
 on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
       max_wave:
-        description: "Размер волны (сколько пакетов обрабатывать за run)."
+        description: "Максимум пакетов в волне (1..25)"
         required: false
-        type: string
         default: "5"
       full_rebuild:
-        description: "Полный ребилд (--force) ВСЕХ enabled-пакетов. Требует confirm_full_rebuild=true."
-        required: false
+        description: "Полный ребилд (только allowlist + двойное подтверждение)"
         type: boolean
+        required: false
         default: false
       confirm_full_rebuild:
-        description: "ЯВНОЕ ПОДТВЕРЖДЕНИЕ полного/всех-пакетов ребилда. Без true — abort до submit."
-        required: false
+        description: "Подтверждаю полный ребилд"
         type: boolean
+        required: false
         default: false
       stable_project:
-        description: "Стабильный COPR-проект (allowlist-guarded; менять нельзя)."
+        description: "Stable COPR-проект"
         required: false
-        type: string
         default: "arcticlore/candy-opensuse"
       pilot_project:
-        description: "Pilot-проект (allowlist-guarded)."
+        description: "Pilot COPR-проект"
         required: false
-        type: string
         default: "arcticlore/candy-opensuse-pilot"
 
 permissions:
@@ -64,13 +46,18 @@ env:
   MAINTAINER_ALLOWLIST: "arcticlore"
 
 jobs:
-  pipeline:
+  # ---------------------------------------------------------------------------
+  # 1. План: быстрый, без submit. Определяет СПИСОК пакетов для матрицы.
+  # ---------------------------------------------------------------------------
+  plan:
+    name: plan wave
     runs-on: ubuntu-latest
-    timeout-minutes: 320
+    # План не ждёт COPR — только repodata. 60 минут с большим запасом.
+    timeout-minutes: 60
     container: fedora:44
-    concurrency:
-      group: opensuse-auto-publish
-      cancel-in-progress: false
+    outputs:
+      packages: ${{ steps.plan.outputs.packages }}
+      plan_size: ${{ steps.plan.outputs.plan_size }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -179,31 +166,215 @@ jobs:
           key: srpm-cache-${{ hashFiles('pkgs.json', 'bin/gen_specs.py', 'bin/make-srpm.sh') }}
           enableCrossOsArchive: true
 
-      - name: Execute wave (fresh SRPM -> pilot exact-4/4 -> stable exact-4/4)
-        id: wave
+      - name: Build wave plan (без submit)
+        id: plan
         env:
           COPR_STABLE: ${{ inputs.stable_project || 'arcticlore/candy-opensuse' }}
           COPR_PILOT: ${{ inputs.pilot_project || 'arcticlore/candy-opensuse-pilot' }}
           COPR_API_TOKEN: ${{ secrets.COPR_API_TOKEN }}
           WAVE_MAX: ${{ steps.scope.outputs.max_wave }}
-          # assert-переменная: никогда не переопределяем из inputs.
-          CANDY_STABLE_FIXED: arcticlore/candy-opensuse
         run: |
           set -o pipefail
-          FORCE_FLAG="${{ steps.scope.outputs.force_flag }}"
-          echo "=== auto-publish plan (preview) ==="
-          python3 bin/auto-publish.py plan --max-wave "$WAVE_MAX" ${FORCE_FLAG} 2>&1 | tee logs/plan.log
-          echo "=== auto-publish run ==="
-          python3 bin/auto-publish.py run --max-wave "$WAVE_MAX" ${FORCE_FLAG} \
-            2>&1 | tee logs/publish.log || { echo "WAVE_FAILED"; exit 1; }
-          echo "wave_clean=true" >> "$GITHUB_OUTPUT"
+          python3 bin/auto-publish.py plan --max-wave "$WAVE_MAX" \
+            ${{ steps.scope.outputs.force_flag }} --json-out logs/plan.json 2>&1 | tee logs/plan.log
+          PKGS=$(python3 -c "import json;print(json.dumps([p['name'] for p in json.load(open('logs/plan.json'))['packages']]))")
+          SIZE=$(python3 -c "import json;print(json.load(open('logs/plan.json'))['plan_size'])")
+          echo "packages=$PKGS" >> "$GITHUB_OUTPUT"
+          echo "plan_size=$SIZE" >> "$GITHUB_OUTPUT"
+          echo "wave matrix: $PKGS"
+
+      - name: Upload plan
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wave-plan-${{ github.run_number }}
+          path: logs/
+
+  # ---------------------------------------------------------------------------
+  # 2. Пакеты волны: независимые job'ы, максимум 3 одновременно.
+  #
+  #    Почему не один job: run 36971434561 отменили на 320-минутном
+  #    таймауте, и четыре пакета, ушедшие в stable, потеряли результат вместе с
+  #    ним. Теперь пакет = отдельный job, и его таймаут не трогает соседей.
+  # ---------------------------------------------------------------------------
+  package:
+    name: publish ${{ matrix.pkg }}
+    needs: plan
+    # Пустой план — не ошибка: волна нечего делать.
+    if: needs.plan.outputs.packages != '[]'
+    runs-on: ubuntu-latest
+    # COPR может считать дольше суток на тяжёлом пакете. Обрезать наблюдение
+    # раньше, чем COPR закончит, бессмысленно: исход станет deferred, а
+    # следующая волна подхватит тот же build id. Поэтому потолок высокий, а
+    # реальный лимит наблюдения задаёт --timeout-min (deferred вместо cancel).
+    timeout-minutes: 720
+    container: fedora:44
+    strategy:
+      # Один упавший пакет не должен отменять остальные: они всё ещё могут
+      # закрыться, а их state-sync нужен.
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        pkg: ${{ fromJSON(needs.plan.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+
+      - name: Install toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          dnf install -y jq git gh rpm-build rpmdevtools dnf-plugins-core python3 golang \
+            cargo rust copr-cli nodejs24 nodejs24-npm-bin > logs/dnf-install.log 2>&1 \
+            || { echo "dnf install failed:"; tail -20 logs/dnf-install.log; exit 1; }
+          tail -5 logs/dnf-install.log
+          gh --version
+          mv logs/dnf-install.log logs/dnf-install-full.log
+
+      - name: Configure COPR
+        run: |
+          set -euo pipefail
+          COPR_CONF="$RUNNER_TEMP/copr-publish.conf"
+          umask 077
+          printf '%s\n' "${{ secrets.COPR_CONFIG }}" > "$COPR_CONF"
+          chmod 600 "$COPR_CONF"
+          echo "COPR_CONFIG_PATH=$COPR_CONF" >> "$GITHUB_ENV"
+          if [ -n "${{ secrets.COPR_API_TOKEN }}" ]; then
+            echo "${{ secrets.COPR_API_TOKEN }}" > "$RUNNER_TEMP/copr-api-token"
+            chmod 600 "$RUNNER_TEMP/copr-api-token"
+            echo "COPR_API_TOKEN_PATH=$RUNNER_TEMP/copr-api-token" >> "$GITHUB_ENV"
+          fi
+
+      - name: Restore SRPM cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: |
+            SRPMS/
+            SOURCES/
+          key: srpm-cache-${{ hashFiles('pkgs.json', 'bin/gen_specs.py', 'bin/make-srpm.sh') }}
+          enableCrossOsArchive: true
+
+      # Активная сборка той же версии НЕ пересобирается: auto-publish подхватит
+      # существующий build id через active_build и продолжит наблюдение.
+      # Активная сборка ДРУГОЙ версии не переиспользуется никогда.
+      - name: Publish single package (resume existing build id, no resubmit)
+        id: exec
+        env:
+          PKG: ${{ matrix.pkg }}
+          COPR_STABLE: ${{ inputs.stable_project || 'arcticlore/candy-opensuse' }}
+          COPR_PILOT: ${{ inputs.pilot_project || 'arcticlore/candy-opensuse-pilot' }}
+          COPR_API_TOKEN: ${{ secrets.COPR_API_TOKEN }}
+          WAVE_ONLY: ${{ matrix.pkg }}
+          WAVE_REPORT_PATH: logs/report-${{ matrix.pkg }}.json
+          PKG_TIMEOUT_MIN: "300"
+        run: |
+          set +e
+          # --max-wave здесь НЕ равен размеру матрицы: план строится целиком
+          # (max_wave обрезает его ДО фильтра --only), а --only оставляет один
+          # пакет. С max-wave=1 пакет из хвоста очереди получил бы пустой план.
+          python3 bin/auto-publish.py run --max-wave 25 \
+            --only "$PKG" --report-path "logs/report-$PKG.json" \
+            --timeout-min "$PKG_TIMEOUT_MIN" 2>&1 | tee "logs/publish-$PKG.log"
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      # deferred — это НЕ успех: job честно красный, но его результат уже
+      # записан в logs/report-<pkg>.json, и reconcile не потеряет его из-за
+      # соседнего пакета. not-in-wave — штатная пустота (уже опубликован),
+      # она зелёная: волне нечего было делать.
+      - name: Package conclusion (deferred is not success)
+        if: always()
+        env:
+          PKG: ${{ matrix.pkg }}
+        run: |
+          set -euo pipefail
+          OUTCOME=$(python3 -c "import json;print(json.load(open('logs/report-$PKG.json'))['items'][0].get('outcome','unknown'))" 2>/dev/null || echo unknown)
+          echo "outcome=$OUTCOME rc=${{ steps.exec.outputs.rc }}"
+          case "$OUTCOME" in
+            promoted) echo "::notice::$PKG => promoted" ;;
+            not-in-wave) echo "::notice::$PKG => не требует публикации (цель уже достигнута)" ;;
+            deferred) echo "::warning::$PKG => deferred (COPR не успел; resubmit не делаем, build id сохранён)"
+                     exit 1 ;;
+            *) echo "::error::$PKG => $OUTCOME"; exit 1 ;;
+          esac
+
+      - name: Upload package logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: publish-logs-${{ github.run_number }}-${{ matrix.pkg }}
+          path: logs/
+
+  # ---------------------------------------------------------------------------
+  # 3. Reconcile: агрегирует отчёты, гоняет гейты и синхронизирует state/SPECS.
+  #
+  #    Ключевое: этот job выполняется ВСЕГДА (if: always()). Раньше sync был под
+  #    if: success(), поэтому таймаут одного долгого build'а съедал и гейт, и
+  #    публикацию версий остальных пакетов.
+  # ---------------------------------------------------------------------------
+  reconcile:
+    name: reconcile wave
+    needs: [plan, package]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container: fedora:44
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+
+      - name: Install toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          dnf install -y jq git gh rpm-build rpmdevtools dnf-plugins-core python3 \
+            > logs/dnf-install.log 2>&1 \
+            || { echo "dnf install failed:"; tail -20 logs/dnf-install.log; exit 1; }
+          tail -3 logs/dnf-install.log
+
+      - name: Collect wave artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: publish-logs-${{ github.run_number }}-*
+          path: collected
+          merge-multiple: true
+
+      - name: Merge per-package reports
+        id: merge
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          cp -f collected/report-*.json logs/ 2>/dev/null || true
+          python3 - <<'PY' | tee logs/merge.log
+          import glob, json, os
+          items, stale, deferred = {}, [], []
+          for path in sorted(glob.glob("logs/report-*.json")):
+              r = json.load(open(path))
+              stale.extend(r.get("stale_targets") or [])
+              for it in r.get("items", []):
+                  items[it["name"]] = it
+          wave = {"items": list(items.values()),
+                  "deferred": sorted(i["name"] for i in items.values()
+                                     if i.get("outcome") == "deferred"),
+                  "stale_targets": stale}
+          from collections import Counter
+          wave["counts"] = dict(Counter(i.get("outcome", "?") for i in wave["items"]))
+          json.dump(wave, open("logs/wave-report.json", "w"),
+                    ensure_ascii=False, indent=2)
+          print("counts:", json.dumps(wave["counts"], ensure_ascii=False))
+          print("deferred:", wave["deferred"])
+          for i in wave["items"]:
+              print(f"  {i['name']}: {i.get('outcome')} "
+                    f"pilot={i.get('pilot_build','-')} stable={i.get('stable_build','-')}")
+          PY
 
       - name: Verify exact-regen gate (scope + spec-set + idempotency)
         id: regen-check
         run: |
           set -euo pipefail
-          # Только `promoted` считается успехом волны: srpm-skip/not-attempted/
-          # pilot-not-clean/stable-not-clean роняют run (P0 fail-open устранён).
           if python3 bin/regen_gate.py; then
             echo "regen_gate=ok" >> "$GITHUB_OUTPUT"
           else
@@ -211,7 +382,7 @@ jobs:
             echo "regen-gate провален — auto-merge отключён" >&2
           fi
 
-      - name: Auto-issue (failures из волны + failed в stable)
+      - name: Auto-issue (failures из волны + deferred + failed в stable)
         if: always()
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -226,11 +397,14 @@ jobs:
           bad = [e for e in r.get("items", []) if e.get("outcome") != "promoted"]
           if bad:
               body = ("**Волна auto-publish: не-чистые исходы**\n\n"
-                      + "\n".join(f"- `{e['name']}`: `{e.get('outcome')}` {e.get('error','')}"
+                      + "\n".join(f"- `{e['name']}`: `{e.get('outcome')}` "
+                                  f"pilot={e.get('pilot_build','-')} "
+                                  f"stable={e.get('stable_build','-')} "
+                                  f"{e.get('error','')}"
                                   for e in bad)
                       + f"\n\nRun: {os.environ.get('RUN_URL','')}")
-              title = "Wave failures (auto-publish channel)"
-              subprocess.run(["gh", "issue", "create", "--title", title, "--body", body],
+              subprocess.run(["gh", "issue", "create", "--title",
+                              "Wave failures (auto-publish channel)", "--body", body],
                              check=False)
           else:
               print("нет не-чистых исходов в волне")
@@ -239,43 +413,81 @@ jobs:
           echo "== stable failed реестр =="
           bin/auto-issue.sh || true
 
-      - name: Commit state/SPECS via bot branch + reviewable PR; auto-merge только exact+green
-        if: success()
+      # Гейт не теряется из-за таймаута: job запускается always(), а внутри мы
+      # фиксируем ровно те цели, которые реально опубликованы (outcome=promoted).
+      # deferred/3-4 в state/SPECS НЕ попадают — иначе репозиторий будет врать
+      # о том, что опубликовано.
+      - name: Sync state/SPECS for PUBLISHED packages only
+        id: sync
         env:
           GH_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          REGEN_GATE: ${{ steps.regen-check.outputs.regen_gate }}
         run: |
           set -euo pipefail
-          # В контейнере f39/f40 у checkout нет .git (рабочее дерево есть, метаданные нет).
-          # Восстанавливаем репо локально: init + fetch origin/master, затем snapshot-коммит.
-          BRANCH="candy-bot/publish-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          # workspace принадлежит runner-UID, процесс — root; обходим ownership-чек.
           git config --global --add safe.directory '*' 2>/dev/null || true
-          git init -q 2>/dev/null || true
-          git remote add origin "$REMOTE_URL" 2>/dev/null || git remote set-url origin "$REMOTE_URL"
-          git config user.name "candy-bot"
-          git config user.email "candy-bot@users.noreply.github.com"
           git fetch -q origin master
+          PROMOTE=$(python3 - <<'PY'
+          import json
+          r = json.load(open("logs/wave-report.json"))
+          print(" ".join(f"{i['name']}@{i.get('target','')}"
+                         for i in r.get("items", [])
+                         if i.get("outcome") == "promoted" and i.get("target")))
+          PY
+          )
+          if [ -z "$PROMOTE" ]; then
+            echo "Нет promoted-пакетов — state/SPECS не трогаем"
+            exit 0
+          fi
+          echo "Синхронизирую только фактически опубликованные: $PROMOTE"
+          PROMOTE="$PROMOTE" SYNC_LIST="$RUNNER_TEMP/sync-targets" python3 - <<'PY'
+          import json, os, pathlib, time
+          targets = {}
+          for tok in os.environ["PROMOTE"].split():
+              name, _, ver = tok.partition("@")
+              if name and ver:
+                  targets[name] = ver
+          path = pathlib.Path("state/state.json")
+          state = json.loads(path.read_text())
+          now = int(time.time())
+          for name, ver in targets.items():
+              entry = state.setdefault(name, {})
+              entry["ver"] = ver
+              entry["ts"] = now
+          path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+          print("state обновлён для:", sorted(targets))
+          # По одной паре на строку: gen_specs читает построчно.
+          with open(os.environ["SYNC_LIST"], "w", encoding="utf-8") as fh:
+              for name, ver in sorted(targets.items()):
+                  fh.write(f"{name} {ver}\n")
+          PY
+          while read -r name ver; do
+            [ -z "$name" ] && continue
+            echo "gen_specs: $name@$ver"
+            python3 bin/gen_specs.py "$name" "$ver"
+          done < "$RUNNER_TEMP/sync-targets"
+
           if git diff --quiet origin/master -- state/state.json pkgs.json SPECS/; then
             echo "No changes to commit"
             exit 0
           fi
-          git add -A -- state/state.json pkgs.json SPECS/ 2>&1 || true
-          git commit -qm "publish sync: state targets + specs after wave ${{ steps.wave.outputs.wave_clean || 'true' }}"
-          git reset -q --soft origin/master
-          git commit -qm "publish sync: state targets + specs after wave ${{ steps.wave.outputs.wave_clean || 'true' }}"
+          # Точный diff: только state/SPECS/pkgs, ничего постороннего.
+          git diff --name-only origin/master -- state/state.json pkgs.json SPECS/
+          BRANCH="candy-bot/publish-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git remote add origin "$REMOTE_URL" 2>/dev/null || git remote set-url origin "$REMOTE_URL"
+          git config user.name "candy-bot"
+          git config user.email "candy-bot@users.noreply.github.com"
+          git add -A -- state/state.json pkgs.json SPECS/
+          git commit -qm "publish sync: state targets + specs after wave ${GITHUB_RUN_ID}"
           if ! git push origin "HEAD:refs/heads/$BRANCH"; then
             echo "ERROR: git push failed for $BRANCH" >&2
             exit 1
           fi
-          # GITHUB_TOKEN (fallback) НЕ может создавать PRs (политика GitHub).
-          # Если CANDY_BOT_TOKEN не задан — ветка уже запушена, делаем PR вручную/по токену.
           if PR_URL=$(gh pr create --base master --head "$BRANCH" \
                --title "publish sync: wave targets regenerated" \
-               --body "Autogenerated sync of state.json/SPECS from a pilot→stable wave run (exact 4/4 gate). Reviewable PR — no direct push to master." 2>&1); then
+               --body "Autogenerated sync of state.json/SPECS for packages actually published (exact 4/4). Reviewable PR — no direct push to master." 2>&1); then
             echo "PR created: $PR_URL"
-            # Auto-merge ТОЛЬКО при точном реген-диффе (идемпотентно).
-            if [ "${{ steps.regen-check.outputs.regen_gate }}" = "ok" ]; then
+            if [ "$REGEN_GATE" = "ok" ]; then
               gh pr merge "$PR_URL" --auto --squash --delete-branch \
                 || echo "WARN: auto-merge не включён (checks ещё не зелёные — это штатно)" >&2
             else
@@ -283,14 +495,14 @@ jobs:
             fi
           else
             echo "WARN: PR не создан (нет CANDY_BOT_TOKEN; GITHUB_TOKEN не может создавать PRs)"
-            echo "WARN: ветка $BRANCH запушена — PR доступен вручную:"
-            echo "gh pr create -R ${{ github.repository }} --base master --head $BRANCH"
-            echo "raw: ${PR_URL##*$'\n'}" >&2 || true
+            echo "WARN: ветка $BRANCH запущена — PR доступен вручную:"
+            echo "gh pr create -R ${GITHUB_REPOSITORY} --base master --head $BRANCH"
           fi
 
       - name: Telegram notification
         if: always()
         run: |
+          set -euo pipefail
           CHAT_ID=""
           BOT_TOKEN=""
           if [ -f ~/.config/candy/tg.conf ]; then
@@ -300,15 +512,66 @@ jobs:
           CHAT_ID="${CHAT_ID:-${{ secrets.TG_CHAT_ID }}}"
           BOT_TOKEN="${BOT_TOKEN:-${{ secrets.TG_BOT_TOKEN }}}"
           if [ -n "$CHAT_ID" ] && [ -n "$BOT_TOKEN" ]; then
-            STATUS="${{ job.status }}"
-            MSG="🤖 <b>candy pilot→stable wave</b>: ${STATUS}"
+            COUNTS=$(python3 -c "import json;print(json.load(open('logs/wave-report.json'))['counts'])" 2>/dev/null || echo '{}')
+            MSG="🤖 <b>candy pilot→stable wave</b>: ${COUNTS}"
             curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
               -d chat_id="$CHAT_ID" -d parse_mode=HTML -d text="$MSG" >/dev/null 2>&1 || true
           fi
 
-      - name: Upload logs
+      - name: Upload merged logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: publish-logs-${{ github.run_number }}
+          name: wave-summary-${{ github.run_number }}
           path: logs/
+
+  # Итог run'а: красный, если что-то не promoted. deferred тоже красный —
+  # успешным он станет только когда пакет реально закроется.
+  finalize:
+    name: wave result
+    needs: [plan, package, reconcile]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        continue-on-error: true
+        with:
+          name: wave-summary-${{ github.run_number }}
+          path: logs
+
+      - name: Fail unless every package is promoted
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          PKG_RESULT: ${{ needs.package.result }}
+          RECONCILE_RESULT: ${{ needs.reconcile.result }}
+        run: |
+          set -euo pipefail
+          echo "plan=$PLAN_RESULT package=$PKG_RESULT reconcile=$RECONCILE_RESULT"
+          # Упавший plan означает, что волну вообще не планировали: молчаливо
+          # «успешного» отчёта быть не должно.
+          if [ "$PLAN_RESULT" != "success" ]; then
+            echo "::error::plan не завершился успешно ($PLAN_RESULT) — волна не выполнена"
+            exit 1
+          fi
+          if [ ! -f logs/wave-report.json ]; then
+            echo "::error::нет logs/wave-report.json — отчёты пакетов не собраны"
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json, sys
+          r = json.load(open("logs/wave-report.json"))
+          items = r.get("items", [])
+          if not items:
+              print("волна пуста (нечего публиковать) — это успех")
+              sys.exit(0)
+          bad = [i for i in items if i.get("outcome") not in ("promoted", "not-in-wave")]
+          for i in bad:
+              print(f"::error::{i['name']}: {i.get('outcome')} {i.get('error','')}")
+          print("deferred (ждали COPR, resubmit не делаем):", r.get("deferred", []))
+          print("итог:", json.dumps(r.get("counts", {}), ensure_ascii=False))
+          sys.exit(1 if bad else 0)
+          PY

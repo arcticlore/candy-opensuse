@@ -29,24 +29,35 @@ def wf(wf_text):
     return yaml.safe_load(wf_text)
 
 
+def _all_jobs(wf):
+    return wf["jobs"]
+
+
 @pytest.fixture(scope="module")
 def pipeline(wf):
-    return wf["jobs"]["pipeline"]
+    """Job, несущий гейты (имя менялось: pipeline -> plan)."""
+    for name, job in _all_jobs(wf).items():
+        if any(s.get("name", "").startswith("Scope check") for s in job["steps"]):
+            return job
+    raise AssertionError("не найден job с шагом 'Scope check'")
 
 
 @pytest.fixture(scope="module")
 def scope_run(wf):
     """Тело shell-скрипта шага 'Scope check'."""
-    steps = wf["jobs"]["pipeline"]["steps"]
-    step = next(s for s in steps if s.get("name", "").startswith("Scope check"))
-    return step["run"]
+    for job in _all_jobs(wf).values():
+        for step in job["steps"]:
+            if step.get("name", "").startswith("Scope check"):
+                return step["run"]
+    raise AssertionError("не найден шаг 'Scope check'")
 
 
 def test_no_required_reviewer_environment(wf, pipeline):
     """`environment` с required_reviewers блокирует schedule — его быть не должно."""
-    assert "environment" not in pipeline, (
-        "job не должен зависеть от окружения с reviewer-гейтом: "
-        "scheduled-run снова зависнет в waiting")
+    for name, job in _all_jobs(wf).items():
+        assert "environment" not in job, (
+            f"job {name} не должен зависеть от окружения с reviewer-гейтом: "
+            "scheduled-run снова зависнет в waiting")
     env_rules = wf.get("env", {})
     assert "MAINTAINER_ALLOWLIST" in env_rules, (
         "allowlist актора для полного ребилда должен быть объявлен явно")
@@ -107,3 +118,80 @@ def test_project_allowlists_kept(scope_run):
 def test_max_wave_bounded(scope_run):
     assert '-ge 1' in scope_run or '-lt 1' in scope_run, (
         "max_wave должен валидироваться, иначе пустой scope-check")
+
+class TestWaveShape:
+    """Волна не должна теряться из-за одного долгого build.
+
+    Контекст: run 36971434567 отменили на общем таймауте 320 минут — четыре
+    пакета, ушедшие в stable, потеряли результат вместе с ним. Эти тезы
+    фиксируют требования к оркестровке: независимые package-джобы, потолок
+    ожидания выше бюджета COPR, deferred вместо cancel и state-гейт, который
+    не зависит от успеха пакетов.
+    """
+
+    def test_packages_are_independent_matrix_with_cap(self, wf):
+        pkg = wf["jobs"]["package"]
+        strat = pkg["strategy"]
+        assert strat["fail-fast"] is False, (
+            "один упавший пакет не должен отменять соседей по волне")
+        assert strat["max-parallel"] == 3, (
+            "параллелизм ограничен 3 активными сборками")
+        assert "pkg" in strat["matrix"], "пакеты должны быть элементами матрицы"
+
+    def test_job_timeout_allows_copr_to_outlast_github(self, wf):
+        """Потолок job'а обязан быть больше бюджета наблюдения за сборкой."""
+        job = wf["jobs"]["package"]
+        assert job["timeout-minutes"] >= 720, (
+            "timeout короче типичной длительности COPR-сборки обрывает волну")
+
+    def test_no_legacy_single_pipeline_job(self, wf):
+        assert "pipeline" not in wf["jobs"], (
+            "монолитный job, где один таймаут съедает всю волну, должен быть "
+            "разобран на независимые джобы")
+
+    def test_per_package_report_is_written(self, wf):
+        steps = wf["jobs"]["package"]["steps"]
+        exec_step = next(s for s in steps if s.get("id") == "exec")
+        assert "--report-path" in exec_step["run"], (
+            "результат пакета должен попадать в отдельный отчёт, иначе таймаут "
+            "соседнего пакета его съест")
+        assert "--only" in exec_step["run"], (
+            "per-package запуск обязателен, иначе джобы дублируют друг друга")
+
+    def test_per_package_plan_is_not_truncated_before_filter(self, wf):
+        """--max-wave обрезает план ДО --only: max-wave=1 убил бы хвост матрицы."""
+        steps = wf["jobs"]["package"]["steps"]
+        exec_step = next(s for s in steps if s.get("id") == "exec")
+        assert "--max-wave 1 " not in exec_step["run"], (
+            "max-wave=1 в per-package job оставит пакеты из хвоста плана "
+            "с пустым планом")
+
+    def test_deferred_is_not_success(self, wf):
+        steps = wf["jobs"]["package"]["steps"]
+        concl = next(s for s in steps
+                     if s.get("name", "").startswith("Package conclusion"))
+        assert "deferred" in concl["run"], (
+            "deferred обязан быть явным исходом")
+        assert concl.get("if") == "always()", (
+            "исход пакета должен фиксироваться даже при таймауте")
+
+    def test_reconcile_and_finalize_run_even_on_failure(self, wf):
+        """Гейт не должен теряться из-за таймаута/провала одного пакета."""
+        for name in ("reconcile", "finalize"):
+            assert wf["jobs"][name].get("if") == "always()", (
+                f"job {name} обязан выполняться always(): иначе провал одного "
+                "долгого build'а съест и гейт, и sync")
+
+    def test_state_sync_limited_to_promoted(self, wf):
+        steps = wf["jobs"]["reconcile"]["steps"]
+        sync = next(s for s in steps
+                    if s.get("name", "").startswith("Sync state"))
+        assert '"promoted"' in sync["run"], (
+            "state/SPECS синхронизируются только для фактически опубликованных "
+            "пакетов: deferred или 3/4 в репозиторий попадать не должны")
+
+    def test_concurrency_is_run_level(self, wf):
+        """Сериализация должна быть на весь run, иначе две волны спорят за chroot."""
+        assert wf["concurrency"]["group"] == "opensuse-auto-publish"
+        assert wf["concurrency"]["cancel-in-progress"] is False, (
+            "текущая волна должна дорабатываться, а не отменяться новой")
