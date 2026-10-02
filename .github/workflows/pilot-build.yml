@@ -1,4 +1,10 @@
 name: pilot build (opensuse)
+# Матричная пилотная сборка: до 3 пакетов параллельно, fail-fast выключен —
+# падение одного пакета не отменяет сборку остальных (каждый пакет даёт
+# собственный вердикт и собственное evidence).
+# Строгая валидация: неизвестное имя = FAILURE (не SKIP), disabled-пакет = FAILURE.
+# Продвижение в stable здесь НЕ выполняется: единственный путь — update.yml,
+# и только при exact 4/4 + pre-submit evidence из этого workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -8,7 +14,7 @@ on:
         type: string
         default: "archey4,colorls,tealdeer"
       resume_build:
-        description: "Опционально: продолжить наблюдение по существующему build id без повторного submit"
+        description: "Опционально: build id через запятую в том же порядке, что и pkgs — наблюдение без повторного submit"
         required: false
         type: string
         default: ""
@@ -21,10 +27,76 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      matrix: ${{ steps.parse.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+
+      - name: Validate package list (existence + enabled) and build matrix
+        id: parse
+        env:
+          PKGS: ${{ inputs.pkgs || 'archey4,colorls,tealdeer' }}
+          RESUME_BUILD: ${{ inputs.resume_build }}
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          python3 - "$PKGS" "$RESUME_BUILD" <<'PY' | tee logs/resolve.log
+          import json, sys
+          raw, raw_resume = sys.argv[1], sys.argv[2]
+          pkgs = [p.strip() for p in raw.replace(",", " ").split() if p.strip()]
+          resume = [p.strip() for p in raw_resume.replace(",", " ").split() if p.strip()]
+          if not pkgs:
+              sys.exit("ABORT: список пакетов пуст")
+          if resume and len(resume) != len(pkgs):
+              sys.exit(f"ABORT: resume_build содержит {len(resume)} id, а пакетов {len(pkgs)}")
+          meta = {p["name"]: p for p in json.load(open("pkgs.json"))["packages"]}
+
+          def is_enabled(p):
+              v = p.get("enabled")
+              if v is None:
+                  return True
+              if isinstance(v, bool):
+                  return v
+              return str(v).lower() not in ("false", "0", "no")
+
+          entries, bad = [], []
+          for i, name in enumerate(pkgs):
+              p = meta.get(name)
+              if p is None:
+                  bad.append(f"{name}: не найден в pkgs.json")
+                  continue
+              if not is_enabled(p):
+                  bad.append(f"{name}: пакет disabled в pkgs.json — pilot его не берёт")
+                  continue
+              if name in [e["name"] for e in entries]:
+                  bad.append(f"{name}: дубликат в списке")
+                  continue
+              entries.append({"name": name, "resume": resume[i] if resume else ""})
+          if bad:
+              for b in bad:
+                  print("  [FAIL] " + b)
+              sys.exit(1)
+          print(json.dumps({"include": entries}))
+          with open("matrix.json", "w") as fh:
+              json.dump({"include": entries}, fh)
+          PY
+          echo "matrix=$(jq -c . matrix.json)" >> "$GITHUB_OUTPUT"
+          echo "RESOLVED $(jq -c '[.include[].name]' matrix.json)"
+
   build:
+    needs: resolve
     runs-on: ubuntu-latest
     timeout-minutes: 300
     container: fedora:44
+    strategy:
+      # Не больше 3 активных parent builds в пилотном проекте одновременно.
+      max-parallel: 3
+      # Один упавший пакет не должен отменять сборку остальных.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
 
@@ -34,16 +106,37 @@ jobs:
             golang nodejs24 nodejs24-npm-bin copr-cli > /dev/null 2>&1 \
             || dnf install -y jq git rpm-build rpmdevtools python3 cargo rust copr-cli
 
-      - name: Build SRPMs, submit, capture build ids (COPR secret via env, config 0600 + trap)
+      - name: Validate package is enabled (повторная проверка в изоляции)
+        env:
+          PKG: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          python3 - "$PKG" <<'PY'
+          import json, sys
+          name = sys.argv[1]
+          p = next((x for x in json.load(open("pkgs.json"))["packages"]
+                    if x["name"] == name), None)
+          if p is None:
+              sys.exit(f"ABORT: {name} не найден в pkgs.json")
+          v = p.get("enabled")
+          enabled = True if v is None else (v if isinstance(v, bool)
+                                           else str(v).lower() not in ("false", "0", "no"))
+          if not enabled:
+              sys.exit(f"ABORT: {name} disabled в pkgs.json")
+          print(f"enabled ok: {name}")
+          PY
+
+      - name: Build SRPM, submit, capture build id (COPR secret via env, config 0600 + trap)
         id: pilot
         env:
           COPR_PROJECT: arcticlore/candy-opensuse-pilot
-          PKGS: ${{ inputs.pkgs || 'archey4,colorls,tealdeer' }}
-          RESUME_BUILD: ${{ inputs.resume_build }}
+          PKG: ${{ matrix.name }}
+          RESUME: ${{ matrix.resume }}
           COPR_CONFIG_SECRET: ${{ secrets.COPR_CONFIG }}
         run: |
           set -o pipefail
-          mkdir -p logs
+          name="$PKG"
+          mkdir -p logs evidence
 
           write_copr_config() {
             local conf
@@ -54,10 +147,9 @@ jobs:
             printf '%s' "$conf"
           }
 
-          CONF=""
-          if [ -n "$RESUME_BUILD" ]; then
-            echo "  [RESUME] продолжаю наблюдение по build id $RESUME_BUILD (submit не выполняется)"
-            echo "build_ids=$RESUME_BUILD" >> "$GITHUB_OUTPUT"
+          if [ -n "$RESUME" ]; then
+            echo "  [RESUME] $name: наблюдение по build id $RESUME (submit не выполняется)"
+            echo "build_id=$RESUME" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -68,98 +160,95 @@ jobs:
           [ -n "$CONF" ] && echo "COPR config: $CONF (mode $(stat -c '%a' "$CONF"))"
           echo "secret_interpolated_in_shell=false"
 
-          BUILD_IDS=""
-          FAILED=""
-          for name in $(printf '%s' "$PKGS" | tr ',' ' '); do
-            name=$(echo "$name" | xargs)
-            [ -z "$name" ] && continue
-            echo "== $name =="
+          # stale-SRPM: удаляем старый — submit только из свежего результата make-srpm.
+          rm -f SRPMS/${name}-*.src.rpm
+          if bin/make-srpm.sh "$name" > "logs/srpm-$name.log" 2>&1; then :; else
+            rc=$?
+            echo "  [FAIL] $name: make-srpm rc=$rc — хвост лога:"
+            tail -12 "logs/srpm-$name.log" | sed 's/^/    /'
+            exit "$rc"
+          fi
 
-            if ! jq -e --arg n "$name" '.packages[] | select(.name==$n) | .eco' pkgs.json > /dev/null 2>&1; then
-              echo "  [FAIL] $name: не найден в pkgs.json (неизвестное имя = failure, не SKIP)"
+          srpm=$(ls SRPMS/${name}-*.src.rpm 2>/dev/null | head -1)
+          if [ -z "$srpm" ]; then
+            if grep -q '\[SKIP\]' "logs/srpm-$name.log"; then
+              echo "  [FAIL] $name: make-srpm пометил SKIP — молчаливый skip запрещён"
               exit 1
             fi
-
-            # stale-SRPM: удаляем старый — submit только из свежего результата make-srpm.
-            rm -f SRPMS/${name}-*.src.rpm
-            if bin/make-srpm.sh "$name" > "logs/srpm-$name.log" 2>&1; then :; else
-              rc=$?
-              echo "  [FAIL] $name: make-srpm rc=$rc — хвост лога:"
-              tail -12 "logs/srpm-$name.log" | sed 's/^/    /'
-              FAILED="$FAILED $name"
-              continue
-            fi
-
-            srpm=$(ls SRPMS/${name}-*.src.rpm 2>/dev/null | head -1)
-            if [ -z "$srpm" ]; then
-              if grep -q '\[SKIP\]' "logs/srpm-$name.log"; then
-                echo "  [SKIP] $name: make-srpm пометил SKIP (пакет не собирается) — пропускаю"
-                continue
-              fi
-              echo "  [FAIL] $name: SRPM не найден"
-              FAILED="$FAILED $name"
-              continue
-            fi
-
-            echo "  [SUBMIT] $srpm -> $COPR_PROJECT"
-            if ! copr-cli --config "$CONF" build --nowait "$COPR_PROJECT" "$srpm" > "logs/copr-$name.log" 2>&1; then
-              echo "  [FAIL] $name: copr-cli rc=$? — хвост лога:"
-              tail -12 "logs/copr-$name.log" | sed 's/^/    /'
-              FAILED="$FAILED $name"
-              continue
-            fi
-            build_id=$(python3 bin/copr_waiter.py print-build-ids "logs/copr-$name.log")
-            if [ -z "$build_id" ]; then
-              echo "  [FAIL] $name: не удалось извлечь numeric build id из вывода copr-cli"
-              sed 's/^/    /' "logs/copr-$name.log"
-              FAILED="$FAILED $name"
-              continue
-            fi
-            echo "  [BUILD_ID] $name => $build_id"
-            BUILD_IDS="$BUILD_IDS $build_id"
-          done
-          BUILD_IDS=$(echo "$BUILD_IDS" | xargs)
-          if [ -n "$BUILD_IDS" ]; then
-            echo "build_ids=$BUILD_IDS" >> "$GITHUB_OUTPUT"
-          fi
-          if [ -n "$FAILED" ]; then
-            echo "  [FAILED_PACKAGES] (не сублимированы):$FAILED"
-            if [ -z "$BUILD_IDS" ]; then
-              echo "  [FAIL] нет build ids — ничего не сублимировано"
-            fi
+            echo "  [FAIL] $name: SRPM не найден"
             exit 1
           fi
-          [ -n "$BUILD_IDS" ] || { echo "  [FAIL] ничего не обработано"; exit 1; }
+          echo "$srpm" > "evidence/$name.srpm-path"
+          sha256sum "$srpm" | tee "evidence/$name.srpm.sha256"
+
+          echo "  [SUBMIT] $srpm -> $COPR_PROJECT"
+          if ! copr-cli --config "$CONF" build --nowait "$COPR_PROJECT" "$srpm" > "logs/copr-$name.log" 2>&1; then
+            echo "  [FAIL] $name: copr-cli rc=$? — хвост лога:"
+            tail -12 "logs/copr-$name.log" | sed 's/^/    /'
+            exit 1
+          fi
+          build_id=$(python3 bin/copr_waiter.py print-build-ids "logs/copr-$name.log")
+          if [ -z "$build_id" ]; then
+            echo "  [FAIL] $name: не удалось извлечь numeric build id из вывода copr-cli"
+            sed 's/^/    /' "logs/copr-$name.log"
+            exit 1
+          fi
+          echo "  [BUILD_ID] $name => $build_id"
+          echo "build_id=$build_id" >> "$GITHUB_OUTPUT"
         # trap EXIT гарантирует удаление CONF при success/failure/cancel (TERM/INT).
 
-      - name: Wait for terminal 4/4 result (all four chroots, tolerant waiter)
-        if: steps.pilot.outputs.build_ids != ''
+      - name: Wait for exact 4/4 and record pre-submit evidence
+        if: steps.pilot.outputs.build_id != ''
         timeout-minutes: 240
         env:
           COPR_API_TOKEN: ${{ secrets.COPR_API_TOKEN }}
           PKGS_JSON: pkgs.json
+          PKG: ${{ matrix.name }}
+          BUILD_ID: ${{ steps.pilot.outputs.build_id }}
         run: |
           set -euo pipefail
-          total_rc=0
-          for bid in ${{ steps.pilot.outputs.build_ids }}; do
-            echo "=== waiting build $bid ==="
-            rc=0
-            python3 bin/copr_waiter.py watch --build-id "$bid" --pkgs-json "$PKGS_JSON" \
-              --timeout-min 180 --interval 60 || rc=$?
-            echo "  waiter rc=$rc for build $bid"
-            [ "$rc" -ne 0 ] && total_rc=$rc
-          done
-          if [ "$total_rc" -ne 0 ]; then
-            echo "FAIL: не все пилотные сборки закончены 4/4 succeeded"
-          else
-            echo "OK: все пилотные сборки 4/4 succeeded"
-          fi
-          exit "$total_rc"
+          mkdir -p evidence
+          rc=0
+          python3 bin/copr_waiter.py watch --build-id "$BUILD_ID" --pkgs-json "$PKGS_JSON" \
+            --timeout-min 180 --interval 60 || rc=$?
+          echo "  waiter rc=$rc for build $BUILD_ID"
+          # Evidence для последующего promote: ровно 4 chroot и все succeeded.
+          python3 - "$PKG" "$BUILD_ID" "$rc" <<'PY'
+          import json, os, sys, urllib.request
+          name, bid, rc = sys.argv[1], sys.argv[2], int(sys.argv[3])
+          url = (f"https://copr.fedorainfracloud.org/api_3/build-chroot/list"
+                 f"?build_id={bid}&limit=100")
+          headers = {}
+          tok = os.environ.get("COPR_API_TOKEN", "")
+          if tok:
+              headers["Authorization"] = f"Bearer {tok}"
+          chroots = {}
+          try:
+              req = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  data = json.loads(r.read().decode())
+              rows = data.get("items", data) if isinstance(data, dict) else data
+              chroots = {c["name"]: c["state"] for c in rows}
+          except Exception as exc:
+              chroots = {"_error": str(exc)}
+          ev = {"package": name, "build_id": bid, "waiter_rc": rc,
+                "chroots": chroots,
+                "exact_4_of_4": len(chroots) == 4
+                                and all(v == "succeeded" for v in chroots.values())}
+          with open(f"evidence/{name}.json", "w") as fh:
+              json.dump(ev, fh, indent=2)
+          print(json.dumps(ev, indent=2))
+          if not ev["exact_4_of_4"]:
+              sys.exit(f"НЕ exact 4/4 — {name} не может быть промотирован в stable")
+          PY
+          exit 0
 
-      - name: Upload logs
+      - name: Upload logs and evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: pilot-logs-${{ github.run_number }}
-          path: logs/
+          name: pilot-logs-${{ matrix.name }}-${{ github.run_number }}
+          path: |
+            logs/
+            evidence/
           retention-days: 14
