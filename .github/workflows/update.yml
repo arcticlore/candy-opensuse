@@ -8,8 +8,18 @@ name: pilot→stable wave publish (opensuse)
 #   Безопасность:
 #   - пустая волна / «уже всё зелёное» => закончить без действий;
 #   - активные сборки в pilot/stable НЕ дублируются (resume по build id);
-#   - --force (полный ребилд) только вручную и с confirm_full_rebuild=true;
+#   - --force (полный ребилд) ТОЛЬКО вручную: workflow_dispatch + full_rebuild=true
+#     + confirm_full_rebuild=true + actor из MAINTAINER_ALLOWLIST. Никогда на schedule.
+#   - schedule жёстко changed-only: без --force берутся только целевые версии из
+#     state.json, не достигнутые зелёным в pilot; «всё зелёное» => выход без submit.
 #   - emergency brake: переменная репозитория CANDY_PUBLISH_PAUSE=true останавливает.
+#
+#   ПОЧЕМУ НЕТ `environment: candy-production`:
+#     у окружения были required_reviewers, поэтому scheduled-run навсегда зависал
+#     в статусе waiting и требовал ручного approve каждую ночь — конвейер был
+#     мёртвым. Вместо reviewer-гейта у полного ребилда явные машинные гейты
+#     (см. Scope check): schedule никогда не может включить --force, а ручной
+#     ребилд требует двух boolean-подтверждений и actor из allowlist.
 #   - bot PR (state+SPECS) авто-мержится ТОЛЬКО при exact-regen diff и зелёных
 #     required checks; при любых не-чистых исходах волны — PR без auto-merge.
 on:
@@ -48,12 +58,16 @@ permissions:
   pull-requests: write
   issues: write
 
+# Акторам, кому разрешён ручной полный ребилд (--force).
+# Всё, что не входит в список, упирается в abort до любых submit.
+env:
+  MAINTAINER_ALLOWLIST: "arcticlore"
+
 jobs:
   pipeline:
     runs-on: ubuntu-latest
     timeout-minutes: 320
     container: fedora:44
-    environment: candy-production
     concurrency:
       group: opensuse-auto-publish
       cancel-in-progress: false
@@ -73,6 +87,8 @@ jobs:
           STABLE_PROJECT: ${{ inputs.stable_project || 'arcticlore/candy-opensuse' }}
           PILOT_PROJECT: ${{ inputs.pilot_project || 'arcticlore/candy-opensuse-pilot' }}
           CANDY_PUBLISH_PAUSE: ${{ vars.CANDY_PUBLISH_PAUSE }}
+          EVENT_NAME: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
           if [ "${CANDY_PUBLISH_PAUSE:-false}" = "true" ]; then
@@ -86,6 +102,19 @@ jobs:
           if [ "$PILOT_PROJECT" != "arcticlore/candy-opensuse-pilot" ]; then
             echo "ABORT: PILOT_PROJECT=$PILOT_PROJECT вне allowlist" >&2
             exit 1
+          fi
+          # Полный ребилд не может быть unattended: только workflow_dispatch,
+          # только из allowlist, только с явным двойным подтверждением.
+          if [ "$FORCE" = "true" ] && [ "$EVENT_NAME" != "workflow_dispatch" ]; then
+            echo "ABORT: full_rebuild невозможен вне workflow_dispatch (событие: $EVENT_NAME)" >&2
+            exit 1
+          fi
+          if [ "$FORCE" = "true" ]; then
+            case ",$MAINTAINER_ALLOWLIST," in
+              *",$ACTOR,"*) : ;;
+              *) echo "ABORT: actor=$ACTOR не в MAINTAINER_ALLOWLIST — полный ребилд запрещён" >&2
+                 exit 1 ;;
+            esac
           fi
           if [ "$FORCE" = "true" ] && [ "$CONFIRM_FULL" != "true" ]; then
             echo "ABORT: full_rebuild=true требует confirm_full_rebuild=true" >&2
