@@ -56,6 +56,12 @@ import urllib.request
 from collections import Counter
 from pathlib import Path
 
+from copr_published import (  # repodata = источник правды о публикации
+    PublishProbeError,
+    fetch_published,
+    has_newer,
+    target_published as repodata_has_target,
+)
 from copr_waiter import (  # переиспользуемый state machine (тот же, что в CI)
     ApiError,
     fetch_chroot_states,
@@ -194,6 +200,41 @@ def prioritize(pkgs: list[dict]):
     return sorted(pkgs, key=lambda p: (p.get("prio", 5), p["name"]))
 
 
+def probe_published(project: str, chroots: list[str]) -> dict[str, set[str]]:
+    """Что реально опубликовано в проекте, по repodata каждого chroot.
+
+    Fail closed: если реподата недоступна или не разобралась, состояние
+    репозитория НЕИЗВЕСТНО, а при неизвестном состоянии любая сборка рискует
+    оказаться дубликатом уже опубликованного пакета.
+    """
+    owner, name = api_project(project)
+    try:
+        return fetch_published(name, chroots, owner=owner)
+    except PublishProbeError as exc:
+        raise WavePlanError(f"repodata {project} недоступна: {exc}") from exc
+
+
+def target_is_stale(published: dict[str, set[str]] | None, name: str, target: str) -> bool:
+    """В проекте уже версия НОВЕЕ цели волны — promote был бы даунгрейдом."""
+    return has_newer(published, name, target)
+
+
+def stale_targets(pkgs: list[dict], versions: dict[str, str],
+                  pilot_published: dict[str, set[str]] | None,
+                  stable_published: dict[str, set[str]] | None) -> list[dict]:
+    """Пакеты с устаревшей целью в state.json — их нельзя ни пересобирать, ни промоутить."""
+    out: list[dict] = []
+    for p in pkgs:
+        name = p["name"]
+        target = versions.get(name, "")
+        if not target or not is_prioritizable(p):
+            continue
+        for project, table in (("pilot", pilot_published), ("stable", stable_published)):
+            if target_is_stale(table, name, target):
+                out.append({"name": name, "target": target, "project": project})
+    return out
+
+
 def build_plan(
     pkgs: list[dict],
     versions: dict[str, str],
@@ -201,6 +242,8 @@ def build_plan(
     max_wave: int,
     force: bool = False,
     stable_hist: dict[str, list[tuple[str, str, int]]] | None = None,
+    pilot_published: dict[str, set[str]] | None = None,
+    stable_published: dict[str, set[str]] | None = None,
 ) -> list[dict]:
     """Кандидаты волны.
 
@@ -208,6 +251,13 @@ def build_plan(
     Ключевой случай (был багом): pilot-цель зелёная, stable-цель ещё нет
     (missing/failed/active) — такой пакет обязан попасть в план, иначе
     stable-гэпы не закрываются никогда.
+
+    «Достигнута цель» = зелёная сборка ИЛИ версия есть в repodata: build-list
+    COPR неполон (у 133 из 137 опубликованных пакетов нет записи `succeeded`),
+    и без repodata план заново пересобирает уже опубликованное.
+
+    Даунгрейд запрещён в обе стороны: если в проекте уже есть версия новее цели,
+    пакет выпадает из плана независимо от --force (см. stale_targets).
     """
     if max_wave < 1:
         raise WavePlanError("max_wave должен быть >= 1")
@@ -222,8 +272,13 @@ def build_plan(
             continue
         phist = pilot_hist.get(name, [])
         shist = stable_hist.get(name, [])
-        pilot_ok = target_reached(target, phist)
-        stable_ok = target_reached(target, shist)
+        if target_is_stale(pilot_published, name, target) or \
+                target_is_stale(stable_published, name, target):
+            continue  # цель устарела — пересборка только испортила бы репозиторий
+        pilot_ok = target_reached(target, phist) or repodata_has_target(
+            pilot_published, name, target)
+        stable_ok = target_reached(target, shist) or repodata_has_target(
+            stable_published, name, target)
         if not force and pilot_ok and stable_ok:
             continue  # обе цели зелёные — ничего не делаем
         plan.append({
@@ -389,11 +444,23 @@ def process_package(
     timeout_min: float,
     stable_hist: dict[str, list[tuple[str, str, int]]],
     pilot_builds: list[dict],
+    pilot_published: dict[str, set[str]] | None = None,
+    stable_published: dict[str, set[str]] | None = None,
 ) -> dict:
     name = pkg["name"]
     target = pkg["target"]
     out = dict(pkg)
     out.setdefault("mode", "full")
+
+    # Страховка от TOCTOU: план мог быть построен до того, как в репозитории
+    # появилась более новая версия. Промоутить старую нельзя ни при каком
+    # --force, поэтому исход — провал волны, а не 'promoted'.
+    for project, table in ((PILOT, pilot_published), (STABLE, stable_published)):
+        if target_is_stale(table, name, target):
+            out["outcome"] = "downgrade-blocked"
+            out["error"] = (f"{name}: в {project} уже версия новее цели {target} "
+                            "— сборка/промоут отменены (обновите state.json)")
+            return out
 
     # --- SRPM: либо переиспользуем артефакт зелёной pilot-сборки, либо собираем
     #     ровно под target из плана. Оба пути проверяют версию ДО submit.
@@ -515,17 +582,28 @@ def render_markdown(wave: dict) -> str:
 def cmd_plan(args) -> int:
     pkgs = json.loads(Path("pkgs.json").read_text())
     versions = load_state_versions()
+    chroots = list(pkgs["project"]["chroots"])
     owner, pname = api_project(PILOT)
     pilot_hist = history(fetch_builds(owner, pname, args.token or None))
     stable_owner, stable_name = api_project(STABLE)
     stable_hist = history(fetch_builds(stable_owner, stable_name, args.token or None))
+    try:
+        pilot_pub = probe_published(PILOT, chroots)
+        stable_pub = probe_published(STABLE, chroots)
+    except WavePlanError as exc:
+        print(f"PUBLISH-PROBE-FAILED: {exc}", file=sys.stderr)
+        return 1
     plan = build_plan(pkgs["packages"], versions, pilot_hist, args.max_wave,
-                      args.force, stable_hist)
+                      args.force, stable_hist, pilot_pub, stable_pub)
+    for item in stale_targets(pkgs["packages"], versions, pilot_pub, stable_pub):
+        print(f"  STALE {item['name']}@{item['target']}: в {item['project']} уже "
+              f"новая версия, цель из state.json устарела — промоутить нельзя")
     for p in plan:
         print(f"  {p['name']}@{p['target']} mode={p['mode']} "
               f"pilot_build={p['pilot_build'] or '(new)'} "
               f"stable_build={p['stable_build'] or '(new)'}")
     print(f"plan_size={len(plan)} pilot={PILOT} stable={STABLE}")
+    print(f"published_probe=ok pilot_names={len(pilot_pub)} stable_names={len(stable_pub)}")
     return 0
 
 
@@ -554,13 +632,31 @@ def cmd_run(args) -> int:
     stable_owner, stable_name = api_project(STABLE)
     stable_hist = history(fetch_builds(stable_owner, stable_name, token))
 
-    plan = build_plan(pkgs, versions, pilot_hist, args.max_wave, args.force, stable_hist)
+    # Реподата читается ДО плана: без неё неизвестно, что уже опубликовано,
+    # а волна без плана не должна ни собирать, ни промоутить ничего.
+    try:
+        pilot_pub = probe_published(PILOT, chroots)
+        stable_pub = probe_published(STABLE, chroots)
+    except WavePlanError as exc:
+        print(f"PUBLISH-PROBE-FAILED: {exc}", file=sys.stderr)
+        return 1
+
+    plan = build_plan(pkgs, versions, pilot_hist, args.max_wave, args.force,
+                      stable_hist, pilot_pub, stable_pub)
 
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
-    wave = {"fetched_at": int(time.time()), "items": [], "counts": {}, "errors": []}
+    wave = {"fetched_at": int(time.time()), "items": [], "counts": {}, "errors": [],
+            "published_probe": {"pilot": {k: sorted(v) for k, v in sorted(pilot_pub.items())},
+                                "stable": {k: sorted(v) for k, v in sorted(stable_pub.items())}},
+            "stale_targets": stale_targets(pkgs, versions, pilot_pub, stable_pub)}
+    if wave["stale_targets"]:
+        print(f"STALE targets skipped: {[i['name'] for i in wave['stale_targets']]}",
+              file=sys.stderr)
     if not plan:
         print("nothing to do (волна пуста)")
+        (log_dir / "wave-report.json").write_text(
+            json.dumps(wave, ensure_ascii=False, indent=2))
         return 0
 
     print(f"wave: {len(plan)} package(s): {[p['name'] for p in plan]}")
@@ -568,7 +664,8 @@ def cmd_run(args) -> int:
         print(f"=== {entry['name']}@{entry['target']} (mode={entry['mode']}) ===")
         try:
             res = process_package(entry, chroots, token, copr_conf, log_dir,
-                                  args.timeout_min, stable_hist, pilot_builds)
+                                  args.timeout_min, stable_hist, pilot_builds,
+                                  pilot_pub, stable_pub)
         except WaveError as exc:
             res = dict(entry)
             res["outcome"] = "pipeline-error"
