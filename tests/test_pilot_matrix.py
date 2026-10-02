@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 import sys
+import textwrap
 
 import pytest
 
@@ -39,7 +40,9 @@ def resolve_code(wf_text):
         r"python3 - \"\$PKGS\" \"\$RESUME_BUILD\" <<'PY' \| tee logs/resolve\.log\n"
         r"(.*?)\n          PY\n", wf_text, re.S)
     assert m, "resolve-скрипт не найден"
-    return m.group(1)
+    # YAML-блок `run: |` снимает общий отступ в рантайме, а в файле он остаётся;
+    # без dedent `python3 -c` получает IndentationError.
+    return textwrap.dedent(m.group(1))
 
 
 def run_resolve(code, pkgs, resume=""):
