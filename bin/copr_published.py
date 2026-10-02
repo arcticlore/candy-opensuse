@@ -22,6 +22,7 @@ from __future__ import annotations
 import bz2
 import gzip
 import lzma
+import time
 import urllib.request
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
@@ -30,6 +31,7 @@ from collections.abc import Iterable
 # а не на API-хосте —混 смешивать их нельзя.
 DEFAULT_DL_BASE = "https://download.copr.fedorainfracloud.org"
 DL_TMPL = "{dl}/results/{owner}/{project}/{chroot}/"
+RETRY_BACKOFF_S = 3.0   # пауза между попытками; в тестах обнуляется
 
 
 class PublishProbeError(RuntimeError):
@@ -63,6 +65,10 @@ def _decompress(blob: bytes) -> bytes:
 
 
 def _fetch(url: str, timeout: int, retries: int = 3, binary: bool = False):
+    """Скачать с повторами и паузой: CDN у download.copr периодически отдаёт
+    502/404 подряд (наблюдалось на живом прогоне 2026-10-02), и мгновенный
+    retry без backoff доводит до ложного «репозиторий неизвестен».
+    """
     last = None
     for attempt in range(retries):
         try:
@@ -71,6 +77,8 @@ def _fetch(url: str, timeout: int, retries: int = 3, binary: bool = False):
             return data if binary else data.decode("utf-8", "replace")
         except Exception as exc:  # noqa: BLE001 — сеть/CDN отвечают по-разному
             last = exc
+            if attempt + 1 < retries:
+                time.sleep(RETRY_BACKOFF_S * (attempt + 1))
     raise PublishProbeError(f"не удалось загрузить {url}: {last}")
 
 

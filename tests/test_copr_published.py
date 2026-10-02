@@ -161,6 +161,46 @@ class TestFetchPublished:
         with pytest.raises(mod.PublishProbeError):
             mod.fetch_published("candy-opensuse", ["opensuse-tumbleweed-x86_64"])
 
+    def test_transient_error_is_retried_with_backoff(self, mod, monkeypatch):
+        """CDN отдаёт 502/404 подряд — нужен retry с паузой, а не мгновенный фейл."""
+        sleeps, attempts = [], []
+
+        class _Resp:
+            def read(self):
+                return b"<repomd/>"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def flaky(url, timeout=None):
+            attempts.append(url)
+            if len(attempts) < 3:
+                raise OSError("HTTP Error 502: Bad Gateway")
+            return _Resp()
+
+        monkeypatch.setattr(mod, "RETRY_BACKOFF_S", 0.01)
+        monkeypatch.setattr(mod.time, "sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(mod.urllib.request, "urlopen", flaky)
+        assert mod._fetch("https://example/repomd.xml", 5) == "<repomd/>"
+        assert len(attempts) == 3
+        assert sleeps == [0.01, 0.02]      # линейный backoff между попытками
+
+    def test_all_retries_exhausted_raises(self, mod, monkeypatch):
+        monkeypatch.setattr(mod, "RETRY_BACKOFF_S", 0)
+        calls = []
+
+        def always_502(url, timeout=None):
+            calls.append(url)
+            raise OSError("HTTP Error 502: Bad Gateway")
+
+        monkeypatch.setattr(mod.urllib.request, "urlopen", always_502)
+        with pytest.raises(mod.PublishProbeError, match="502"):
+            mod._fetch("https://example/repomd.xml", 5, retries=3)
+        assert len(calls) == 3
+
     def test_repomd_without_primary_is_error(self, mod, monkeypatch):
         monkeypatch.setattr(mod, "_fetch",
                             lambda url, timeout, retries=3, binary=False:
