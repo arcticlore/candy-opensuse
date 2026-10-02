@@ -1,4 +1,5 @@
 """test_auto_publish.py — unit tests for the auto-publish wave pipeline."""
+import json
 import os
 
 import pytest
@@ -372,6 +373,121 @@ class TestProcessPackage:
     def test_max_wave_zero_rejected(self, mod):
         with pytest.raises(mod.WavePlanError):
             mod.build_plan([], {}, {}, 0)
+
+
+class TestPublishedGroundTruth:
+    """build-list COPR неполон: план обязан опираться на repodata."""
+
+    def _pkg(self, name, **kw):
+        base = {"name": name, "prio": 5, "enabled": True}
+        base.update(kw)
+        return base
+
+    def test_package_in_repodata_is_not_replanned(self, mod):
+        """Регрессия live-инцидента: 5 уже опубликованных пакетов попадали в план."""
+        pkgs = [self._pkg("bandwhich", prio=i) for i in range(5)]
+        versions = {"bandwhich": "0.23.1"}
+        stable_pub = {"bandwhich": {"0.23.1"}}
+        pilot_pub = {"bandwhich": {"0.23.1"}}
+        plan = mod.build_plan(pkgs, versions, {}, 5, stable_hist={},
+                              pilot_published=pilot_pub,
+                              stable_published=stable_pub)
+        assert plan == []
+
+    def test_repodata_closes_gap_without_build_list_success(self, mod):
+        """Зелёной записи в build-list нет, но версия опубликована — работа не нужна."""
+        pkgs = [self._pkg("csview")]
+        versions = {"csview": "1.3.4"}
+        plan = mod.build_plan(pkgs, versions, {}, 5, stable_hist={},
+                              pilot_published={"csview": {"1.3.4"}},
+                              stable_published={"csview": {"1.3.4"}})
+        assert plan == []
+
+    def test_stable_gap_still_planned_even_if_pilot_published(self, mod):
+        pkgs = [self._pkg("pybonsai")]
+        versions = {"pybonsai": "1.0.0"}
+        plan = mod.build_plan(pkgs, versions, {}, 5, stable_hist={},
+                              pilot_published={"pybonsai": {"1.0.0"}},
+                              stable_published={})
+        assert [p["name"] for p in plan] == ["pybonsai"]
+        assert plan[0]["mode"] == "promote-only"
+
+    def test_older_target_is_dropped_as_downgrade(self, mod):
+        """gum: в stable уже 2.0.2, а цель из state.json 2.0.1."""
+        pkgs = [self._pkg("gum")]
+        versions = {"gum": "2.0.1"}
+        plan = mod.build_plan(pkgs, versions, {}, 5, stable_hist={},
+                              pilot_published={"gum": {"2.0.1"}},
+                              stable_published={"gum": {"2.0.1", "2.0.2"}})
+        assert plan == []
+
+    def test_force_does_not_override_downgrade_guard(self, mod):
+        pkgs = [self._pkg("gum")]
+        versions = {"gum": "2.0.1"}
+        plan = mod.build_plan(pkgs, versions, {}, 5, force=True, stable_hist={},
+                              pilot_published={"gum": {"2.0.1"}},
+                              stable_published={"gum": {"2.0.2"}})
+        assert plan == []
+
+    def test_stale_targets_reported(self, mod):
+        pkgs = [self._pkg("gum"), self._pkg("fine")]
+        versions = {"gum": "2.0.1", "fine": "1.0.0"}
+        stale = mod.stale_targets(pkgs, versions, {"gum": {"2.0.1"}},
+                                  {"gum": {"2.0.2"}, "fine": {"1.0.0"}})
+        assert [i["name"] for i in stale] == ["gum"]
+        assert stale[0]["project"] == "stable"
+
+    def test_without_repodata_behaviour_unchanged(self, mod):
+        """Без repodata (None) семантика прежняя — пустые таблицы не ломают план."""
+        pkgs = [self._pkg("fresh"), self._pkg("baked")]
+        versions = {"fresh": "2.0.0", "baked": "1.0.0"}
+        hist = {"baked": [("succeeded", "1.0.0", 1)]}
+        stable = {"baked": [("succeeded", "1.0.0-1", 2)]}
+        plan = mod.build_plan(pkgs, versions, hist, 10, stable_hist=stable)
+        assert [p["name"] for p in plan] == ["fresh"]
+
+
+class TestProbeFailClosed:
+    def test_probe_error_becomes_plan_error(self, mod, monkeypatch):
+        def boom(*a, **kw):
+            raise mod.PublishProbeError("404")
+        monkeypatch.setattr(mod, "fetch_published", boom)
+        with pytest.raises(mod.WavePlanError) as exc:
+            mod.probe_published(mod.STABLE, ["opensuse-tumbleweed-x86_64"])
+        assert "repodata" in str(exc.value)
+
+    def test_probe_error_stops_run_before_any_build(self, mod, monkeypatch, tmp_path,
+                                                    capfd):
+        def boom(*a, **kw):
+            raise mod.PublishProbeError("404")
+        monkeypatch.setattr(mod, "fetch_published", boom)
+
+        def explode(*a, **kw):  # submit не должен вызываться вообще
+            raise AssertionError("submit нельзя вызывать при недоступной repodata")
+        monkeypatch.setattr(mod, "process_package", explode)
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "pkgs.json").write_text(json.dumps({
+            "project": {"chroots": ["opensuse-tumbleweed-x86_64"]},
+            "packages": [{"name": "x", "prio": 5, "enabled": True}],
+        }))
+        (tmp_path / "state").mkdir()
+        (tmp_path / "state/state.json").write_text(json.dumps({"x": {"ver": "1.0"}}))
+        monkeypatch.setattr(mod, "fetch_builds", lambda *a, **kw: [])
+        assert mod.main(["run", "--max-wave", "1"]) == 1
+        assert "PUBLISH-PROBE-FAILED" in capfd.readouterr().err
+
+
+class TestProcessPackageDowngradeGuard:
+    def test_downgrade_blocked_before_srpm_work(self, mod, tmp_path):
+        out = mod.process_package(
+            {"name": "gum", "target": "2.0.1", "mode": "full"},
+            ["opensuse-tumbleweed-x86_64"], None, None, tmp_path, 0.1, {}, [],
+            pilot_published={"gum": {"2.0.1"}},
+            stable_published={"gum": {"2.0.1", "2.0.2"}},
+        )
+        assert out["outcome"] == "downgrade-blocked"
+        assert mod.failed_items([out])  # НЕ тривиально «не помешало run»
+        assert "state.json" in out["error"]
 
 
 class TestSummarize:
