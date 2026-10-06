@@ -177,7 +177,11 @@ jobs:
           set -o pipefail
           python3 bin/auto-publish.py plan --max-wave "$WAVE_MAX" \
             ${{ steps.scope.outputs.force_flag }} --json-out logs/plan.json 2>&1 | tee logs/plan.log
-          PKGS=$(python3 -c "import json;print(json.dumps([p['name'] for p in json.load(open('logs/plan.json'))['packages']]))")
+          # В матрицу уходят ЦЕЛЫЕ записи плана, а не только имена: package-job
+          # получает name+target+mode+id сборок и исполняет их как иммутабельный
+          # --plan-entry. Раньше каждый job перестраивал план из живого
+          # state.json, и план мог уехать между jobs.
+          PKGS=$(python3 -c "import json;print(json.dumps(json.load(open('logs/plan.json'))['packages']))")
           SIZE=$(python3 -c "import json;print(json.load(open('logs/plan.json'))['plan_size'])")
           echo "packages=$PKGS" >> "$GITHUB_OUTPUT"
           echo "plan_size=$SIZE" >> "$GITHUB_OUTPUT"
@@ -190,6 +194,21 @@ jobs:
           name: wave-plan-${{ github.run_number }}
           path: logs/
 
+      # Пустой план — не ошибка (нечего публиковать). Но упавший plan обязан
+      # остаться упавшим: если бы packages просто не вышел, package-job упал бы
+      # на fromJSON('') с непонятной ошибкой, а при неудаче синтеза пустой
+      # матрицы run молча «успел» бы, ничего не опубликовав. Выходим здесь, и
+      # needs.plan.result=='success' в package всё равно не пропустит работу.
+      - name: Ensure packages output is always set
+        if: always()
+        run: |
+          set -euo pipefail
+          if ! grep -q '^packages=' "$GITHUB_OUTPUT" 2>/dev/null; then
+            echo "packages=[]" >> "$GITHUB_OUTPUT"
+            echo "plan_size=0" >> "$GITHUB_OUTPUT"
+            echo "warn: plan не записал матрицу — эмитим пустую (job упадёт сам)" >&2
+          fi
+
   # ---------------------------------------------------------------------------
   # 2. Пакеты волны: независимые job'ы, максимум 3 одновременно.
   #
@@ -198,16 +217,19 @@ jobs:
   #    ним. Теперь пакет = отдельный job, и его таймаут не трогает соседей.
   # ---------------------------------------------------------------------------
   package:
-    name: publish ${{ matrix.pkg }}
+    name: publish ${{ matrix.pkg.name }}
     needs: plan
-    # Пустой план — не ошибка: волна нечего делать.
-    if: needs.plan.outputs.packages != '[]'
+    # Гоняем только при УСПЕХЕ plan и непустой матрице. Раньше здесь не было
+    # проверки needs.plan.result: упавший plan оставлял packages='' и строка
+    # fromJSON('') падала с непонятной ошибкой вместо аккуратного skip.
+    if: needs.plan.result == 'success' && needs.plan.outputs.packages != '[]'
     runs-on: ubuntu-latest
-    # COPR может считать дольше суток на тяжёлом пакете. Обрезать наблюдение
-    # раньше, чем COPR закончит, бессмысленно: исход станет deferred, а
-    # следующая волна подхватит тот же build id. Поэтому потолок высокий, а
-    # реальный лимит наблюдения задаёт --timeout-min (deferred вместо cancel).
-    timeout-minutes: 720
+    # Потолок 360 минут. Наблюдение за COPR живёт в --timeout-min 300, и
+    # бюджет поделён между pilot и stable внутри одного пакета, поэтому после
+    # наблюдения остаётся ~60 минут: записать отчёт, выставить deferred и
+    # залить артефакты ДО того, как job добьёт GitHub. Именно поэтому
+    # deferred доходит до reconcile, а не отменяется таймаутом job'а.
+    timeout-minutes: 360
     container: fedora:44
     strategy:
       # Один упавший пакет не должен отменять остальные: они всё ещё могут
@@ -261,20 +283,21 @@ jobs:
       - name: Publish single package (resume existing build id, no resubmit)
         id: exec
         env:
-          PKG: ${{ matrix.pkg }}
+          PKG: ${{ matrix.pkg.name }}
           COPR_STABLE: ${{ inputs.stable_project || 'arcticlore/candy-opensuse' }}
           COPR_PILOT: ${{ inputs.pilot_project || 'arcticlore/candy-opensuse-pilot' }}
           COPR_API_TOKEN: ${{ secrets.COPR_API_TOKEN }}
-          WAVE_ONLY: ${{ matrix.pkg }}
-          WAVE_REPORT_PATH: logs/report-${{ matrix.pkg }}.json
+          # Иммутабельная запись плана из plan-job: name, target, mode и id
+          # существующих сборок. auto-publish НЕ перестраивает план по живому
+          # state.json — исполняет ровно то, что было решено в plan-job.
+          WAVE_PLAN_ENTRY: ${{ toJSON(matrix.pkg) }}
+          WAVE_REPORT_PATH: logs/report-${{ matrix.pkg.name }}.json
           PKG_TIMEOUT_MIN: "300"
         run: |
           set +e
-          # --max-wave здесь НЕ равен размеру матрицы: план строится целиком
-          # (max_wave обрезает его ДО фильтра --only), а --only оставляет один
-          # пакет. С max-wave=1 пакет из хвоста очереди получил бы пустой план.
-          python3 bin/auto-publish.py run --max-wave 25 \
-            --only "$PKG" --report-path "logs/report-$PKG.json" \
+          python3 bin/auto-publish.py run \
+            --plan-entry "$WAVE_PLAN_ENTRY" \
+            --report-path "logs/report-$PKG.json" \
             --timeout-min "$PKG_TIMEOUT_MIN" 2>&1 | tee "logs/publish-$PKG.log"
           rc=${PIPESTATUS[0]}
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
@@ -287,7 +310,7 @@ jobs:
       - name: Package conclusion (deferred is not success)
         if: always()
         env:
-          PKG: ${{ matrix.pkg }}
+          PKG: ${{ matrix.pkg.name }}
         run: |
           set -euo pipefail
           OUTCOME=$(python3 -c "import json;print(json.load(open('logs/report-$PKG.json'))['items'][0].get('outcome','unknown'))" 2>/dev/null || echo unknown)
@@ -304,7 +327,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: publish-logs-${{ github.run_number }}-${{ matrix.pkg }}
+          name: publish-logs-${{ github.run_number }}-${{ matrix.pkg.name }}
           path: logs/
 
   # ---------------------------------------------------------------------------
@@ -336,6 +359,7 @@ jobs:
           tail -3 logs/dnf-install.log
 
       - name: Collect wave artifacts
+        continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: publish-logs-${{ github.run_number }}-*
@@ -344,13 +368,32 @@ jobs:
 
       - name: Merge per-package reports
         id: merge
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          PLAN_SIZE: ${{ needs.plan.outputs.plan_size }}
         run: |
           set -euo pipefail
           mkdir -p logs
           cp -f collected/report-*.json logs/ 2>/dev/null || true
+
+          # Безопасные пути «пусто» и «упало» не должны быть одним и тем же:
+          #   * пустой план (plan_size=0) — штатное «нечего публиковать», успех;
+          #   * отчётов нет при непустом плане, или plan упал — это ПРОВАЛ,
+          #     и промолчать «волна пуста» означало бы скрытый успех.
+          N=$(ls logs/report-*.json 2>/dev/null | wc -l)
+          if [ "$N" -eq 0 ]; then
+            if [ "$PLAN_RESULT" = "success" ] && [ "${PLAN_SIZE:-1}" = "0" ]; then
+              echo "пустой план (plan_size=0) — отчётов не будет, это успех"
+              python3 -c 'import json;json.dump({"items":[],"counts":{},"deferred":[],"stale_targets":[]},open("logs/wave-report.json","w"),ensure_ascii=False,indent=2)'
+              exit 0
+            fi
+            echo "::error::отчётов пакетов нет при plan=$PLAN_RESULT size=${PLAN_SIZE:-?} — рано говорить «успех»"
+            exit 1
+          fi
+
           python3 - <<'PY' | tee logs/merge.log
           import glob, json, os
-          items, stale, deferred = {}, [], []
+          items, stale = {}, []
           for path in sorted(glob.glob("logs/report-*.json")):
               r = json.load(open(path))
               stale.extend(r.get("stale_targets") or [])
@@ -370,17 +413,6 @@ jobs:
               print(f"  {i['name']}: {i.get('outcome')} "
                     f"pilot={i.get('pilot_build','-')} stable={i.get('stable_build','-')}")
           PY
-
-      - name: Verify exact-regen gate (scope + spec-set + idempotency)
-        id: regen-check
-        run: |
-          set -euo pipefail
-          if python3 bin/regen_gate.py; then
-            echo "regen_gate=ok" >> "$GITHUB_OUTPUT"
-          else
-            echo "regen_gate=fail" >> "$GITHUB_OUTPUT"
-            echo "regen-gate провален — auto-merge отключён" >&2
-          fi
 
       - name: Auto-issue (failures из волны + deferred + failed в stable)
         if: always()
@@ -417,11 +449,15 @@ jobs:
       # фиксируем ровно те цели, которые реально опубликованы (outcome=promoted).
       # deferred/3-4 в state/SPECS НЕ попадают — иначе репозиторий будет врать
       # о том, что опубликовано.
+      #
+      # ВАЖНО: этот шаг генерирует diff, а regen-gate выполняется ПОСЛЕ него
+      # (см. следующие шаги). Раньше гейт стоял до генерации и проверял
+      # чистое дерево — то есть подтверждал, что спеки согласованы сами с
+      # собой, и не видел ничего из того, что волна собиралась закоммитить.
       - name: Sync state/SPECS for PUBLISHED packages only
         id: sync
         env:
           GH_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
-          REGEN_GATE: ${{ steps.regen-check.outputs.regen_gate }}
         run: |
           set -euo pipefail
           git config --global --add safe.directory '*' 2>/dev/null || true
@@ -487,16 +523,50 @@ jobs:
                --title "publish sync: wave targets regenerated" \
                --body "Autogenerated sync of state.json/SPECS for packages actually published (exact 4/4). Reviewable PR — no direct push to master." 2>&1); then
             echo "PR created: $PR_URL"
-            if [ "$REGEN_GATE" = "ok" ]; then
-              gh pr merge "$PR_URL" --auto --squash --delete-branch \
-                || echo "WARN: auto-merge не включён (checks ещё не зелёные — это штатно)" >&2
-            else
-              echo "INFO: auto-merge отключён (regen-gate не пройден)"
-            fi
+            echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+            # auto-merge НЕ здесь: гейт должен сначала проверить уже
+            # сгенерированное дерево. См. шаг regen-check ниже.
           else
             echo "WARN: PR не создан (нет CANDY_BOT_TOKEN; GITHUB_TOKEN не может создавать PRs)"
             echo "WARN: ветка $BRANCH запущена — PR доступен вручную:"
             echo "gh pr create -R ${GITHUB_REPOSITORY} --base master --head $BRANCH"
+          fi
+
+      # P0: гейт выполняется ПОСЛЕ генерации state/SPECS, а не до неё.
+      # Теперь regen_gate.py видит ровно то дерево, которое волна собирается
+      # закоммитить: идемпотентность gen_specs и соответствие набора спек
+      # проверяются на уже перегенерированных файлах. Ставить гейт раньше —
+      # проверять чистый checkout и подтверждать не тот diff.
+      - name: Verify exact-regen gate (после генерации state/SPECS)
+        id: regen-check
+        if: always()
+        run: |
+          set -euo pipefail
+          if python3 bin/regen_gate.py; then
+            echo "regen_gate=ok" >> "$GITHUB_OUTPUT"
+            echo "regen-gate: ok (diff перегенерирован и совпал)"
+          else
+            echo "regen_gate=fail" >> "$GITHUB_OUTPUT"
+            echo "regen-gate провален — auto-merge отключён, PR остаётся на ревью" >&2
+          fi
+
+      # Автомердж включается только когда гейт прошёл уже по СГЕНЕРИРОВАННОМУ
+      # diff'у. Если шага sync не было (нет promoted), pr_url пуст — шаг
+      # пропускается, а не «успешно» молчит.
+      - name: Enable auto-merge only when regen gate passed
+        if: always() && steps.sync.outputs.pr_url != ''
+        env:
+          GH_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ steps.sync.outputs.pr_url }}
+          REGEN_GATE: ${{ steps.regen-check.outputs.regen_gate }}
+        run: |
+          set -uo pipefail
+          if [ "$REGEN_GATE" = "ok" ]; then
+            gh pr merge "$PR_URL" --auto --squash --delete-branch \
+              || echo "WARN: auto-merge не включён (checks ещё не зелёные — это штатно)" >&2
+          else
+            echo "INFO: auto-merge отключён (regen-gate не пройден по сгенерированному diff)"
+          fi
           fi
 
       - name: Telegram notification

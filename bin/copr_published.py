@@ -128,19 +128,24 @@ def parse_primary(blob: bytes) -> dict[str, set[str]]:
 def fetch_published_per_chroot(project: str, chroots: Iterable[str],
                                owner: str = "arcticlore",
                                dl_base: str = DEFAULT_DL_BASE,
-                               timeout: int = 60) -> list[dict[str, set[str]]]:
-    """Таблицы опубликованных пакетов ПО КАЖДОМУ chroot, в порядке chroots."""
-    out: list[dict[str, set[str]]] = []
+                               timeout: int = 60) -> dict[str, dict[str, set[str]]]:
+    """Таблицы опубликованных пакетов ПО КАЖДОМУ chroot: {chroot: {name: versions}}.
+
+    Именно per-chroot, потому что aggregated-таблица не позволяет ответить на
+    вопрос «какой именно chroot не дособран» — а без этого нельзя resubmit'ить
+    только недостающие chroot'ы, не пересобирая успешные.
+    """
+    out: dict[str, dict[str, set[str]]] = {}
     for chroot in chroots:
         root = DL_TMPL.format(dl=dl_base.rstrip("/"), owner=owner, project=project,
                              chroot=chroot)
         href = _primary_href(root, timeout)
         blob = _fetch(f"{root}{href}", timeout, binary=True)
-        out.append(parse_primary(blob))
+        out[chroot] = parse_primary(blob)
     return out
 
 
-def completed_table(per_chroot: list[dict[str, set[str]]]) -> dict[str, set[str]]:
+def completed_table(per_chroot: dict[str, dict[str, set[str]]]) -> dict[str, set[str]]:
     """Версии, опубликованные ВО ВСЕХ chroot сразу (пересечение).
 
     fetch_published() объединяет версии по union — это нужно анти-даунгрейду
@@ -150,18 +155,34 @@ def completed_table(per_chroot: list[dict[str, set[str]]]) -> dict[str, set[str]
     """
     if not per_chroot:
         return {}
-    names = set(per_chroot[0])
-    for table in per_chroot[1:]:
+    tables = list(per_chroot.values())
+    names = set(tables[0])
+    for table in tables[1:]:
         names &= set(table)
     out: dict[str, set[str]] = {}
     for name in names:
-        shared = set(per_chroot[0].get(name, set()))
-        for table in per_chroot[1:]:
+        shared = set(tables[0].get(name, set()))
+        for table in tables[1:]:
             shared &= table.get(name, set())
         shared.discard("")
         if shared:
             out[name] = shared
     return out
+
+
+def chroot_presence(per_chroot: dict[str, dict[str, set[str]]],
+                    name: str, target: str) -> set[str]:
+    """Chroot'ы, где target-версия пакета УЖЕ опубликована."""
+    return {chroot for chroot, table in per_chroot.items()
+            if target in (table.get(name) or set())}
+
+
+def is_complete(per_chroot: dict[str, dict[str, set[str]]],
+                name: str, target: str) -> bool:
+    """Опубликована ли версия ВО ВСЕХ переданных chroot (и chroot'ы не пусты)."""
+    if not per_chroot:
+        return False
+    return len(chroot_presence(per_chroot, name, target)) == len(per_chroot)
 
 
 def fetch_published(project: str, chroots: Iterable[str], owner: str = "arcticlore",

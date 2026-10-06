@@ -14,6 +14,43 @@ def mod():
     return load_module("auto_publish", os.path.join(ROOT, "bin/auto-publish.py"))
 
 
+def probe_stub(mod, pilot_per=None, stable_per=None):
+    """probe_all, который не ходит в сеть: состояние публикации задано явно.
+
+    Тест обязан решить, что опубликовано, а не подгружать реальный проект —
+    иначе падение сети в тесте превратилось бы в смену поведения пайплайна.
+    """
+    pilot_per = pilot_per or {}
+    stable_per = stable_per or {}
+
+    def _probe(project, chroots):
+        per = pilot_per if project == mod.PILOT else stable_per
+        # гарантируем присутствие всех запрошенных chroot'ов
+        per = {c: per.get(c, {}) for c in chroots}
+        union = {}
+        for table in per.values():
+            for name, versions in table.items():
+                union.setdefault(name, set()).update(versions)
+        return {"union": union, "per_chroot": per,
+                "completed": mod.completed_table(per)}
+
+    return _probe
+
+
+@pytest.fixture(autouse=True)
+def _no_live_repodata(mod, monkeypatch):
+    """Ни один unit-тест не ходит в сеть за repodata.
+
+    probe_all — единственный источник чтения репозитория; тест, не задавший
+    состояние явно (probe_stub), получает ПУСТОЙ репозиторий, а не загрузку
+    реального проекта. Состояние публикации — это утверждение теста, а не
+    побочный эффект от наличия сети.
+    """
+    if not hasattr(mod, "_real_probe_all"):
+        mod._real_probe_all = mod.probe_all   # оригинал до подмены
+    monkeypatch.setattr(mod, "probe_all", probe_stub(mod))
+
+
 class TestNeedsPilot:
     def test_never_built_needs_pilot(self, mod):
         assert mod.needs_pilot("foo", "1.0.0", []) is True
@@ -91,22 +128,47 @@ class TestBuildPlan:
         assert [p["name"] for p in plan] == ["p1", "p2", "p3"]
 
     def test_only_fresh_targets_selected(self, mod):
+        """Уже опубликованные в repodata пропускаются, остальные берутся в волну."""
         pkgs = [self._pkg("fresh", prio=1), self._pkg("baked", prio=0)]
         versions = {"fresh": "2.0.0", "baked": "1.0.0"}
         hist = {"baked": [("succeeded", "1.0.0", 1)]}
         stable = {"baked": [("succeeded", "1.0.0-1", 2)]}
-        plan = mod.build_plan(pkgs, versions, hist, 10, stable_hist=stable)
+        done = {"baked": {"1.0.0"}}
+        plan = mod.build_plan(pkgs, versions, hist, 10, stable_hist=stable,
+                              pilot_published=dict(done, **{"fresh": set()}),
+                              stable_published=dict(done, **{"fresh": set()}),
+                              pilot_completed=dict(done, **{"fresh": set()}),
+                              stable_completed=dict(done, **{"fresh": set()}))
         assert [p["name"] for p in plan] == ["fresh"]
+
+    def test_green_build_alone_never_closes_goal(self, mod):
+        """P0 #2: зелёная запись build-list НЕ закрывает цель без repodata.
+
+        История сборок неполна (у 133 из 137 опубликованных пакетов записи
+        `succeeded` нет вовсе) и ничего не говорит о том, в каких chroot версия
+        появилась, поэтому основанием закрытия может быть только пересечение
+        repodata.
+        """
+        pkgs = [self._pkg("baked", prio=0)]
+        versions = {"baked": "1.0.0"}
+        hist = {"baked": [("succeeded", "1.0.0", 1)]}
+        stable = {"baked": [("succeeded", "1.0.0-1", 2)]}
+        plan = mod.build_plan(pkgs, versions, hist, 10, stable_hist=stable)
+        assert [p["name"] for p in plan] == ["baked"], (
+            "build-list без repodata не должен считаться «цель достигнута»")
 
     def test_force_rebuilds_reached_targets(self, mod):
         pkgs = [self._pkg("baked", prio=0)]
         versions = {"baked": "1.0.0"}
         pilot = {"baked": [("succeeded", "1.0.0", 1)]}
         stable = {"baked": [("succeeded", "1.0.0-1", 2)]}
-        without = mod.build_plan(pkgs, versions, pilot, 10, stable_hist=stable)
+        pub = {"baked": {"1.0.0"}}
+        kw = dict(pilot_published=pub, stable_published=pub,
+                  pilot_completed=pub, stable_completed=pub)
+        without = mod.build_plan(pkgs, versions, pilot, 10, stable_hist=stable, **kw)
         assert without == []
         with_force = mod.build_plan(pkgs, versions, pilot, 10, force=True,
-                                    stable_hist=stable)
+                                    stable_hist=stable, **kw)
         assert with_force and with_force[0]["force"] is True
 
     def test_pilot_green_stable_missing_needs_work_without_force(self, mod):
@@ -114,7 +176,9 @@ class TestBuildPlan:
         pkgs = [self._pkg("gapped", prio=0)]
         versions = {"gapped": "1.0.0"}
         pilot = {"gapped": [("succeeded", "1.0.0", 1)]}
-        plan = mod.build_plan(pkgs, versions, pilot, 10, stable_hist={})
+        done = {"gapped": {"1.0.0"}}
+        plan = mod.build_plan(pkgs, versions, pilot, 10, stable_hist={},
+                              pilot_published=done, pilot_completed=done)
         assert [p["name"] for p in plan] == ["gapped"]
         assert plan[0]["mode"] == "promote-only"
 
@@ -141,16 +205,27 @@ class TestBuildPlan:
 
 
 class TestPlanKeepsStableGaps:
-    """P1: пакет с зелёным pilot, но не-зелёным stable ОБЯЗАН попасть в волну."""
+    """P1: пакет с закрытым pilot, но не закрытым stable ОБЯЗАН попасть в волну.
+
+    «Закрыт» здесь значит только одно: версия опубликована во ВСЕХ chroot по
+    repodata. История сборок в плане участвует исключительно как источник
+    build id для resume (active_build) и никогда — как признак завершения.
+    """
 
     def _pkg(self, name):
         return {"name": name, "prio": 1, "enabled": True}
 
-    def _plan(self, mod, stable_hist):
+    def _plan(self, mod, stable_hist, stable_repodata=None):
         pkgs = [self._pkg("CrabFetch")]
         versions = {"CrabFetch": "0.5.4"}
         pilot = {"CrabFetch": [("succeeded", "0.5.4-1", 11031313)]}
-        return mod.build_plan(pkgs, versions, pilot, 10, stable_hist={"CrabFetch": stable_hist})
+        pilot_done = {"CrabFetch": {"0.5.4"}}          # pilot: 4/4 в repodata
+        stable_done = stable_repodata or {}
+        return mod.build_plan(
+            pkgs, versions, pilot, 10,
+            stable_hist={"CrabFetch": stable_hist},
+            pilot_published=pilot_done, pilot_completed=pilot_done,
+            stable_published=stable_done, stable_completed=stable_done)
 
     def test_stable_missing_kept(self, mod):
         plan = self._plan(mod, [])
@@ -172,7 +247,15 @@ class TestPlanKeepsStableGaps:
         assert plan[0]["stable_build"] is None
 
     def test_successful_stable_target_not_rebuilt(self, mod):
-        assert self._plan(mod, [("succeeded", "0.5.4-1", 11045000)]) == []
+        """stable 4/4 в repodata => пересборки нет, волна пропускает пакет."""
+        done = {"CrabFetch": {"0.5.4"}}
+        assert self._plan(mod, [("succeeded", "0.5.4-1", 11045000)],
+                          stable_repodata=done) == []
+
+    def test_green_stable_build_without_repodata_is_still_work(self, mod):
+        """Зелёная сборка stable без repodata НЕ закрывает цель (P0 #2)."""
+        plan = self._plan(mod, [("succeeded", "0.5.4-1", 11045000)])
+        assert [p["name"] for p in plan] == ["CrabFetch"]
 
     def test_successful_stable_target_other_version_is_work(self, mod):
         plan = self._plan(mod, [("succeeded", "0.4.0-1", 11043000)])
@@ -286,7 +369,7 @@ class TestProcessPackage:
             p.write_bytes(b"srpm-bytes")
             return str(p), "deadbeef", 11031313
 
-        def fake_submit(project, srpm, conf):
+        def fake_submit(project, srpm, conf, chroots=None):
             calls["submit"] = project
             return "11042000"
 
@@ -297,6 +380,8 @@ class TestProcessPackage:
         monkeypatch.setattr(mod, "fetch_pilot_srpm", fake_fetch)
         monkeypatch.setattr(mod, "submit", fake_submit)
         monkeypatch.setattr(mod, "wait_exact_4_4", fake_wait)
+        # вердикт даёт repodata: к моменту проверки stable уже опубликован
+        monkeypatch.setattr(mod, "verify_published", lambda *a, **kw: (True, {}))
 
         res = mod.process_package(self._pkg(), self.CHROOTS, None, None,
                                   tmp_path / "logs", 1.0, {}, [])
@@ -327,6 +412,7 @@ class TestProcessPackage:
 
     def test_full_mode_waits_pilot_before_stable(self, mod, tmp_path, monkeypatch):
         order = []
+        calls_chroots = {}
 
         def fake_make(name, target, log_dir):
             p = tmp_path / "SRPMS" / f"{name}-{target}-1.fc44.src.rpm"
@@ -334,8 +420,9 @@ class TestProcessPackage:
             p.write_bytes(b"x")
             return str(p)
 
-        def fake_submit(project, srpm, conf):
+        def fake_submit(project, srpm, conf, chroots=None):
             order.append(f"submit:{project}")
+            calls_chroots.setdefault(project, list(chroots or []))
             return "111"
 
         def fake_wait(bid, chroots, token, timeout_min, interval):
@@ -345,12 +432,92 @@ class TestProcessPackage:
         monkeypatch.setattr(mod, "make_srpm", fake_make)
         monkeypatch.setattr(mod, "submit", fake_submit)
         monkeypatch.setattr(mod, "wait_exact_4_4", fake_wait)
+        # репозиторий пуст => недостающие ВСЕ chroot, публикация после wait
+        monkeypatch.setattr(mod, "verify_published", lambda *a, **kw: (True, {}))
         res = mod.process_package(self._pkg(mode="full", pilot_ok=False),
                                   self.CHROOTS, None, None, tmp_path / "logs",
                                   1.0, {}, [])
         assert res["outcome"] == "promoted"
         assert order == [f"submit:{mod.PILOT}", "wait:111",
                          f"submit:{mod.STABLE}", "wait:111"]
+        # первый submit идёт на все четыре chroot (ничего ещё не опубликовано)
+        assert calls_chroots[mod.PILOT] == self.CHROOTS
+        assert res["pilot_missing_chroots"] == self.CHROOTS
+
+    def test_submit_sends_only_missing_chroots_not_all_four(self, mod, tmp_path,
+                                                            monkeypatch):
+        """P0: при частично опубликованном репо submit уходит ТОЛЬКО на недостающее.
+
+        Раньше submit всегда шёл на все четыре chroot'а. Повторная отправка
+        уже опубликованного target не добавляет надёжности, но подрывает
+        три зелёных chroot'а: новая сборка перекрывает их ровно тем же SRPM
+        и какое-то время держит repodata неполной. Вариант «3/4 из прошлой
+        волны + дозалив одного chroot» — ровно тот случай, ради которого
+        repodata и стал единственным вердиктом.
+        """
+        target, name = "3.7.1", "dysk"
+        full = {c: "succeeded" for c in self.CHROOTS}
+        # три chroot'а уже несут target, четвёртого нет
+        done = [c for c in self.CHROOTS if c != "leap-aarch64"]
+        pilot_per = {c: {name: {target}} for c in done}
+        pilot_per["leap-aarch64"] = {}
+
+        monkeypatch.setattr(mod, "probe_all",
+                            probe_stub(mod, pilot_per=pilot_per, stable_per={}))
+        submits, waits = [], []
+        monkeypatch.setattr(
+            mod, "submit",
+            lambda project, srpm, conf, chroots=None:
+                (submits.append((project, list(chroots or []))), "11065107")[1])
+        monkeypatch.setattr(
+            mod, "await_stage",
+            lambda project, chroots, name, target, bid, stage, token, deadline,
+                   cap, interval, wait_chroots, out:
+                (waits.append((project, list(wait_chroots))), ("complete", {}))[1])
+        monkeypatch.setattr(mod, "verify_published", lambda *a, **kw: (True, {}))
+
+        def fake_make(n_, t_, log_dir):
+            path = tmp_path / "SRPMS" / f"{n_}-{t_}-1.fc44.src.rpm"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"srpm")
+            return str(path)
+
+        monkeypatch.setattr(mod, "make_srpm", fake_make)
+        monkeypatch.setattr(mod, "sha256_file", lambda p: "aa")
+
+        res = mod.process_package(
+            {"name": name, "target": target, "pilot_build": None,
+             "stable_build": None, "pilot_ok": False, "stable_ok": False,
+             "mode": "full", "force": False},
+            self.CHROOTS, None, None, tmp_path / "logs", 1.0, {}, [])
+
+        assert res["pilot_missing_chroots"] == ["leap-aarch64"]
+        pilot_submits = [c for proj, c in submits if proj == mod.PILOT]
+        assert pilot_submits == [["leap-aarch64"]], (
+            f"submit обязан уходить только на недостающий chroot, получено {pilot_submits}")
+        assert res.get("pilot_submit_chroots") == ["leap-aarch64"]
+        # наблюдение тоже ведётся по недостающему, а не по всем четырём
+        assert [c for proj, c in waits if proj == mod.PILOT] == [["leap-aarch64"]]
+        assert res["outcome"] == "promoted"
+
+    def test_partially_published_pilot_is_not_green_without_the_missing_one(
+            self, mod, tmp_path, monkeypatch):
+        """Три из четырёх в repodata — это ещё не цель: отсутствие не считается."""
+        target, name = "3.7.1", "dysk"
+        done = [c for c in self.CHROOTS if c != "leap-aarch64"]
+        per = {c: {name: {target}} for c in done}
+        per["leap-aarch64"] = {}
+        probe = probe_stub(mod, pilot_per=per, stable_per={})
+
+        per = probe(mod.PILOT, self.CHROOTS)["per_chroot"]
+        assert mod.missing_chroots(mod.PILOT, self.CHROOTS, name, target,
+                                   per) == ["leap-aarch64"]
+        assert mod.is_complete(per, name, target) is False, (
+            "усечение проверки до «где-нибудь опубликовано» вернуло бы 3/4 = успех")
+
+        # а репо, где есть все четыре, цель закрывает
+        full = {c: {name: {target}} for c in self.CHROOTS}
+        assert mod.is_complete(full, name, target) is True
 
     def test_pilot_not_clean_never_touches_stable(self, mod, tmp_path, monkeypatch):
         def fake_make(*a, **kw):
@@ -439,21 +606,29 @@ class TestPublishedGroundTruth:
         assert [i["name"] for i in stale] == ["gum"]
         assert stale[0]["project"] == "stable"
 
-    def test_without_repodata_behaviour_unchanged(self, mod):
-        """Без repodata (None) семантика прежняя — пустые таблицы не ломают план."""
+    def test_without_repodata_nothing_is_considered_done(self, mod):
+        """repodata=None => пустые таблицы, план не падает, но и не закрывает цели.
+
+        Раньше здесь проверялось, что зелёная история подгоняет план до одного
+        пакета. Это и был P0 #2: неизвестное состояние репозитория не должно
+        выглядеть как «уже опубликовано», иначе пустая repodata молча
+        засчитала бы готовность всем пакетам сразу.
+        """
         pkgs = [self._pkg("fresh"), self._pkg("baked")]
         versions = {"fresh": "2.0.0", "baked": "1.0.0"}
         hist = {"baked": [("succeeded", "1.0.0", 1)]}
         stable = {"baked": [("succeeded", "1.0.0-1", 2)]}
         plan = mod.build_plan(pkgs, versions, hist, 10, stable_hist=stable)
-        assert [p["name"] for p in plan] == ["fresh"]
+        assert {p["name"] for p in plan} == {"fresh", "baked"}, (
+            "без repodata ни одна цель не может считаться достигнутой")
 
 
 class TestProbeFailClosed:
     def test_probe_error_becomes_plan_error(self, mod, monkeypatch):
         def boom(*a, **kw):
             raise mod.PublishProbeError("404")
-        monkeypatch.setattr(mod, "fetch_published", boom)
+        monkeypatch.setattr(mod, "probe_all", mod._real_probe_all)
+        monkeypatch.setattr(mod, "fetch_published_per_chroot", boom)
         with pytest.raises(mod.WavePlanError) as exc:
             mod.probe_published(mod.STABLE, ["opensuse-tumbleweed-x86_64"])
         assert "repodata" in str(exc.value)
@@ -462,7 +637,8 @@ class TestProbeFailClosed:
                                                     capfd):
         def boom(*a, **kw):
             raise mod.PublishProbeError("404")
-        monkeypatch.setattr(mod, "fetch_published", boom)
+        monkeypatch.setattr(mod, "probe_all", mod._real_probe_all)
+        monkeypatch.setattr(mod, "fetch_published_per_chroot", boom)
 
         def explode(*a, **kw):  # submit не должен вызываться вообще
             raise AssertionError("submit нельзя вызывать при недоступной repodata")
@@ -591,26 +767,33 @@ class TestPartialChrootRemediation:
         assert plan[0]["pilot_build"] is None                # pilot не пересобираем
 
     def test_completed_table_is_intersection_not_union(self, mod):
-        per_chroot = [
-            {"dysk": {"3.7.1"}, "gum": {"2.0.2"}},   # tw-x86_64
-            {"dysk": {"3.7.1"}, "gum": {"2.0.2"}},   # tw-aarch64 (3.7.1 есть)
-            {"dysk": {"3.7.1"}, "gum": {"2.0.2"}},   # leap-x86_64 (3.7.1 есть)
-            {"dysk": {"3.7.0"}, "gum": {"2.0.2"}},   # leap-aarch64: dysk СТАРАЯ версия
-        ]
+        """Ключи — chroot'ы: без них не видно, какой именно не дособран."""
+        per_chroot = {
+            "tw-x86_64":   {"dysk": {"3.7.1"}, "gum": {"2.0.2"}},
+            "tw-aarch64":  {"dysk": {"3.7.1"}, "gum": {"2.0.2"}},
+            "leap-x86_64": {"dysk": {"3.7.1"}, "gum": {"2.0.2"}},
+            "leap-aarch64": {"dysk": {"3.7.0"}, "gum": {"2.0.2"}},  # dysk СТАРАЯ
+        }
         done = mod.completed_table(per_chroot)
         assert "dysk" not in done, "3.7.1 не во всех chroot => не completed"
         assert done["gum"] == {"2.0.2"}               # 2.0.2 есть во всех четырёх
-        assert mod.completed_table([]) == {}
+        assert mod.completed_table({}) == {}
         # union-таблица для сравнения: там 3.7.1 «есть» — и она не должна решать
         union: dict = {}
-        for t in per_chroot:
-            for n, vs in t.items():
-                union.setdefault(n, set()).update(vs)
+        for table in per_chroot.values():
+            for name, versions in table.items():
+                union.setdefault(name, set()).update(versions)
         assert "3.7.1" in union["dysk"]
-        assert "3.7.1" in union["dysk"] and "dysk" not in done
+        assert "dysk" not in done
+        # а по какому именно chroot не добрали — видно из per-chroot
+        assert mod.chroot_presence(per_chroot, "dysk", "3.7.1") == {
+            "tw-x86_64", "tw-aarch64", "leap-x86_64"}
+        assert mod.is_complete(per_chroot, "dysk", "3.7.1") is False
+        assert mod.is_complete(per_chroot, "gum", "2.0.2") is True
 
     def test_completed_table_drops_package_absent_from_any_chroot(self, mod):
-        per_chroot = [{"gum": {"2.0.2"}}, {"gum": {"2.0.2"}}, {}, {"gum": {"2.0.2"}}]
+        per_chroot = {"a": {"gum": {"2.0.2"}}, "b": {"gum": {"2.0.2"}},
+                      "c": {}, "d": {"gum": {"2.0.2"}}}
         assert mod.completed_table(per_chroot) == {}
 
     def test_failed_chroot_gives_pilot_not_clean_and_no_stable(self, mod, tmp_path,
@@ -620,7 +803,14 @@ class TestPartialChrootRemediation:
         monkeypatch.setattr(mod, "make_srpm", lambda *a, **kw: "srpm")
         monkeypatch.setattr(mod, "sha256_file", lambda p: "deadbeef")
         monkeypatch.setattr(mod, "submit",
-                            lambda p, s, c: (submits.append(p), "11065000")[1])
+                            lambda p, s, c, chroots=None:
+                                (submits.append((p, list(chroots or []))), "11065000")[1])
+        # repodata: целевая версия есть в 3 из 4 chroot (leap-aarch64 остался старым)
+        monkeypatch.setattr(mod, "probe_all", probe_stub(
+            mod, pilot_per={"tw-x86_64": {"dysk": {"3.7.1"}},
+                            "tw-aarch64": {"dysk": {"3.7.1"}},
+                            "leap-x86_64": {"dysk": {"3.7.1"}},
+                            "leap-aarch64": {"dysk": {"3.7.0"}}}))
         seen = {"tw-x86_64": "succeeded", "tw-aarch64": "succeeded",
                 "leap-x86_64": "succeeded", "leap-aarch64": "failed"}
         monkeypatch.setattr(mod, "wait_exact_4_4",
@@ -632,8 +822,10 @@ class TestPartialChrootRemediation:
         res = mod.process_package(pkg, self.CHROOTS, None, None, tmp_path / "logs",
                                   1.0, {}, [])
         assert res["outcome"] == "pilot-not-clean"
-        assert submits == [mod.PILOT]
+        assert submits == [(mod.PILOT, ["leap-aarch64"])], (
+            "пересобирать можно ТОЛЬКО неопубликованный chroot")
         assert res["pilot_chroots"]["leap-aarch64"] == "failed"
+        assert res.get("stable_submitted") is None, "pilot 3/4 не продвигается в stable"
 
     def test_single_chroot_build_is_not_success(self, mod, tmp_path, monkeypatch):
         """Одиночная сборка одного chroot (как наш canary) != 4/4."""
@@ -666,9 +858,14 @@ class TestPartialChrootRemediation:
             return str(p), "657699b7", 11064066
 
         monkeypatch.setattr(mod, "fetch_pilot_srpm", fake_fetch)
-        monkeypatch.setattr(mod, "submit", lambda p, s, c: calls.setdefault("submit", p) and None or "11065107")
+        monkeypatch.setattr(mod, "submit",
+                            lambda p, s, c, chroots=None:
+                                calls.setdefault("submit", (p, list(chroots or [])))
+                                and None or "11065107")
         monkeypatch.setattr(mod, "wait_exact_4_4",
                             lambda *a, **kw: (0, {c: "succeeded" for c in self.CHROOTS}, "4/4"))
+        # repodata: публикация стала полной именно после этой сборки
+        monkeypatch.setattr(mod, "verify_published", lambda *a, **kw: (True, {}))
         pkg = {"name": "dysk", "target": "3.7.1", "pilot_build": None,
                "stable_build": None, "pilot_ok": True, "stable_ok": False,
                "mode": "promote-only", "force": False}
@@ -677,13 +874,15 @@ class TestPartialChrootRemediation:
         assert res["outcome"] == "promoted"
         assert calls["fetch"] == ("dysk", "3.7.1")
         assert res["srpm_source"] == "pilot-build:11064066"   # тот же артефакт
-        assert calls["submit"] == mod.STABLE                  # pilot не пересобирался
+        assert calls["submit"][0] == mod.STABLE               # pilot не пересобирался
+        assert calls["submit"][1] == self.CHROOTS             # репо пуст => все четыре
 
     def test_deferred_when_copr_slower_than_job(self, mod, tmp_path, monkeypatch):
         """Таймаут наблюдения при живой сборке => deferred, а не провал и не успех."""
         monkeypatch.setattr(mod, "make_srpm", lambda *a, **kw: "srpm")
         monkeypatch.setattr(mod, "sha256_file", lambda p: "deadbeef")
-        monkeypatch.setattr(mod, "submit", lambda p, s, c: "11066000")
+        monkeypatch.setattr(mod, "submit",
+                            lambda p, s, c, chroots=None: "11066000")
         monkeypatch.setattr(mod, "wait_exact_4_4", lambda *a, **kw: (1, {}, "timeout"))
         monkeypatch.setattr(mod, "build_still_active", lambda *a, **kw: True)
         pkg = {"name": "dysk", "target": "3.7.1", "pilot_build": None,
