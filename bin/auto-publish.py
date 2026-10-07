@@ -430,17 +430,40 @@ def make_srpm(name: str, target: str, log_dir: Path) -> str:
 
 
 def fetch_pilot_srpm(name: str, target: str, builds: list[dict],
-                     dest_dir: Path) -> tuple[str, str, int]:
-    """Скачать ТОТ ЖЕ SRPM из зелёной pilot-сборки. -> (path, sha256, build_id).
+                     dest_dir: Path, build_id: int | None = None) -> tuple[str, str, int]:
+    """Скачать ТОТ ЖЕ SRPM pilot-сборки. -> (path, sha256, build_id).
 
-    Гарантия «одинаковый SRPM pilot→stable»: promote-only-пакет не пересобирается,
-    а переиспользует артефакт, который уже прошёл exact 4/4 в pilot.
+    Гарантия «одинаковый SRPM»: если часть chroot'ов уже опубликована (3/4) либо
+    план подхватил существующую сборку, свежий make_srpm() дал бы другой артефакт —
+    и в репозитории оказались бы два разных SRPM на один target. Поэтому здесь
+    берётся байт-в-байт тот же SRPM, который уже уходил в pilot.
+
+    build_id — id из плана (resumed/active сборка). Если он задан, SRPM берётся
+    ИМЕННО из неё: подмена на другую сборку той же версии нарушила бы
+    byte-идентичность, поэтому тут нет fallback'а на succeeded-сборку.
     """
-    found = succeeded_build_url(builds, name, target)
+    found = None
+    if build_id is not None:
+        for b in builds:
+            if b.get("id") != build_id:
+                continue
+            url = (b.get("source_package") or {}).get("url")
+            if not url:
+                raise WaveError(
+                    f"{name}: pilot-сборка {build_id} есть, но без SRPM URL — "
+                    "точный артефакт недоступен, submit невозможен")
+            found = (build_id, url)
+            break
+        if found is None:
+            raise WaveError(
+                f"{name}: pilot-сборка {build_id} не найдена в истории проекта — "
+                "возобновить наблюдение без своего SRPM нельзя")
+    else:
+        found = succeeded_build_url(builds, name, target)
     if not found:
         raise WaveError(
-            f"{name}: pilot-цель {target} зелёная, но SRPM пилот-сборки недоступен — "
-            "promote без нарушения byte-идентичности невозможен")
+            f"{name}: pilot-цель {target} частично опубликована, но SRPM pilot-сборки "
+            "недоступен — remediation 3/4 без нарушения byte-идентичности невозможна")
     build_id, url = found
     dest_dir.mkdir(parents=True, exist_ok=True)
     fname = os.path.basename(url)
@@ -613,12 +636,29 @@ def process_package(
                             "— сборка/промоут отменены (обновите state.json)")
             return out
 
-    # --- SRPM: либо переиспользуем артефакт зелёной pilot-сборки, либо собираем
-    #     ровно под target из плана. Оба пути проверяют версию ДО submit.
-    if pkg.get("mode") == "promote-only":
+    # --- PILOT scope: сначала узнаём, чего именно не хватает. От этого зависит
+    #     и выбор SRPM, и то, куда вообще можно submit.
+    if out["mode"] == "promote-only":
+        pilot_missing: list[str] = []
+    else:
+        pilot_missing = missing_chroots(PILOT, chroots, name, target, pilot_per_chroot)
+    out["pilot_missing_chroots"] = pilot_missing
+
+    # Частичная публикация (3/4) и подхваченная планом сборка (resume) означают,
+    # что target УЖЕ уходил в pilot. make_srpm() в этих случаях запрещён:
+    # он собрал бы другой артефакт, и репозиторий получил бы два разных SRPM
+    # на одну и ту же версию — нарушение exact-SRPM.
+    resumed = pkg.get("pilot_build") is not None
+    already_in_pilot = len(pilot_missing) < len(chroots)
+    reuse_exact_srpm = resumed or already_in_pilot
+
+    # --- SRPM: точный артефакт pilot-сборки либо свежая сборка только когда
+    #     target в pilot ещё не появлялся. Версия проверяется ДО submit.
+    if reuse_exact_srpm:
         try:
             srpm, sha, src_build = fetch_pilot_srpm(
-                name, target, pilot_builds, log_dir.parent / "SRPMS")
+                name, target, pilot_builds, log_dir.parent / "SRPMS",
+                build_id=pkg.get("pilot_build"))
         except WaveError as exc:
             out["outcome"] = "not-attempted"
             out["error"] = str(exc)
@@ -640,37 +680,33 @@ def process_package(
     # --- PILOT stage: пересобираем ТОЛЬКО то, что не опубликовано ---
     if out["mode"] == "promote-only":
         out["pilot_ok"] = True
-        out["pilot_missing_chroots"] = []
+    elif not pilot_missing:
+        # 4/4 в repodata: сборка этого target уже была и закрыта.
+        out["pilot_ok"] = True
     else:
-        pilot_missing = missing_chroots(PILOT, chroots, name, target, pilot_per_chroot)
-        out["pilot_missing_chroots"] = pilot_missing
-        if not pilot_missing:
-            # 4/4 в repodata: сборка этого target уже была и закрыта.
-            out["pilot_ok"] = True
-        else:
-            pilot_bid = pkg.get("pilot_build")
-            if pilot_bid is None:
-                try:
-                    pilot_bid = submit(PILOT, srpm, copr_conf, chroots=pilot_missing)
-                    out["pilot_submitted"] = True
-                    out["pilot_submit_chroots"] = pilot_missing
-                    wait_chroots = pilot_missing
-                except WaveError as exc:
-                    out["outcome"] = "pilot-submit-failure"
-                    out["error"] = str(exc)
-                    return out
-            else:
-                # Продолжаем наблюдение за существующей сборкой: она создана
-                # на весь проект, ждём её по всем chroot, resubmit не делаем.
-                out["pilot_resumed"] = True
-                wait_chroots = chroots
-            out["pilot_build"] = pilot_bid
-            status, pilot_per_chroot = await_stage(
-                PILOT, chroots, name, target, str(pilot_bid), "pilot", token,
-                deadline, propagate_min, 30.0, wait_chroots, out)
-            if status != "complete":
+        pilot_bid = pkg.get("pilot_build")
+        if pilot_bid is None:
+            try:
+                pilot_bid = submit(PILOT, srpm, copr_conf, chroots=pilot_missing)
+                out["pilot_submitted"] = True
+                out["pilot_submit_chroots"] = pilot_missing
+                wait_chroots = pilot_missing
+            except WaveError as exc:
+                out["outcome"] = "pilot-submit-failure"
+                out["error"] = str(exc)
                 return out
-            out["pilot_ok"] = True
+        else:
+            # Продолжаем наблюдение за существующей сборкой: она создана
+            # на весь проект, ждём её по всем chroot, resubmit не делаем.
+            out["pilot_resumed"] = True
+            wait_chroots = chroots
+        out["pilot_build"] = pilot_bid
+        status, pilot_per_chroot = await_stage(
+            PILOT, chroots, name, target, str(pilot_bid), "pilot", token,
+            deadline, propagate_min, 30.0, wait_chroots, out)
+        if status != "complete":
+            return out
+        out["pilot_ok"] = True
 
     # --- STABLE stage (тот же SRPM, тоже только недостающие chroot) ---
     stable_missing = missing_chroots(STABLE, chroots, name, target, stable_per_chroot)

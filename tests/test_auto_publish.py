@@ -1,5 +1,6 @@
 """test_auto_publish.py — unit tests for the auto-publish wave pipeline."""
 import json
+import hashlib
 import os
 
 import pytest
@@ -12,6 +13,35 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 @pytest.fixture
 def mod():
     return load_module("auto_publish", os.path.join(ROOT, "bin/auto-publish.py"))
+
+
+def fake_pilot_srpm(monkeypatch, mod, payload=b"exact-pilot-srpm", default_id=11064066):
+    """Подмена fetch_pilot_srpm с фиксированным артефактом.
+
+    Возвращает dict, куда пишется переданный build_id — тест проверяет, что
+    частичный/remediation-путь идёт за SRPM ИМЕННО в ту сборку, что в плане.
+    """
+    import hashlib
+    seen = {}
+
+    def _fake(name, target, builds, dest_dir, build_id=None):
+        seen["build_id"] = build_id
+        dest = dest_dir / f"{name}-{target}.src.rpm"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(payload)
+        return str(dest), hashlib.sha256(payload).hexdigest(), default_id
+
+    monkeypatch.setattr(mod, "fetch_pilot_srpm", _fake)
+    return seen
+
+
+def self_chroots():
+    return ["tw-x86_64", "tw-aarch64", "leap-x86_64", "leap-aarch64"]
+
+
+def assert_srpm_bytes(path, payload=b"exact-pilot-srpm"):
+    with open(path, "rb") as fh:
+        assert fh.read() == payload, "SRPM обязан быть байт-в-байт как в pilot"
 
 
 def probe_stub(mod, pilot_per=None, stable_per=None):
@@ -362,8 +392,9 @@ class TestProcessPackage:
         """pilot-цель зелёная => pilot НЕ пересобирается, stable получает тот же SRPM."""
         calls = {}
 
-        def fake_fetch(name, target, builds, dest_dir):
+        def fake_fetch(name, target, builds, dest_dir, build_id=None):
             calls["fetch"] = (name, target)
+            calls["build_id"] = build_id
             p = dest_dir / "CrabFetch-0.5.4-1.fc44.src.rpm"
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_bytes(b"srpm-bytes")
@@ -476,13 +507,19 @@ class TestProcessPackage:
                 (waits.append((project, list(wait_chroots))), ("complete", {}))[1])
         monkeypatch.setattr(mod, "verify_published", lambda *a, **kw: (True, {}))
 
-        def fake_make(n_, t_, log_dir):
-            path = tmp_path / "SRPMS" / f"{n_}-{t_}-1.fc44.src.rpm"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(b"srpm")
-            return str(path)
-
-        monkeypatch.setattr(mod, "make_srpm", fake_make)
+        # 3/4: пересобирать нельзя. make_srpm должен молчать — иначе в
+        # недостающий chroot ушёл бы ДРУГОЙ артефакт, чем в три опубликованных.
+        forbidden = []
+        monkeypatch.setattr(
+            mod, "make_srpm",
+            lambda *a, **kw: forbidden.append("make_srpm") or "/forbidden")
+        exact = fake_pilot_srpm(monkeypatch, mod)
+        submitted_srpm = []
+        monkeypatch.setattr(
+            mod, "submit",
+            lambda project, srpm, conf, chroots=None:
+                (submits.append((project, list(chroots or []))),
+                 submitted_srpm.append(srpm), "11065107")[2])
         monkeypatch.setattr(mod, "sha256_file", lambda p: "aa")
 
         res = mod.process_package(
@@ -499,6 +536,17 @@ class TestProcessPackage:
         # наблюдение тоже ведётся по недостающему, а не по всем четырём
         assert [c for proj, c in waits if proj == mod.PILOT] == [["leap-aarch64"]]
         assert res["outcome"] == "promoted"
+
+        # P0 exact-SRPM: make_srpm в 3/4 не вызывается вовсе
+        assert forbidden == [], "3/4 обязан брать SRPM pilot-сборки, а не пересобирать"
+        assert res["srpm_source"] == "pilot-build:11064066"
+        assert exact["build_id"] is None, "build_id в плане не задан — ищем succeeded"
+        # и в pilot-недостающий chroot, и в stable ушёл один и тот же файл
+        stable_srpm = [p for proj, p in zip([a[0] for a in submits], submitted_srpm)
+                       if proj == mod.STABLE]
+        assert stable_srpm == submitted_srpm[:1], "stable должен получить тот же SRPM"
+        assert_srpm_bytes(submitted_srpm[0])
+        assert_srpm_bytes(stable_srpm[0])
 
     def test_partially_published_pilot_is_not_green_without_the_missing_one(
             self, mod, tmp_path, monkeypatch):
@@ -800,7 +848,7 @@ class TestPartialChrootRemediation:
                                                                monkeypatch):
         """3/4 терминально => pilot-not-clean, stable не submit'ится."""
         submits = []
-        monkeypatch.setattr(mod, "make_srpm", lambda *a, **kw: "srpm")
+        seen = fake_pilot_srpm(monkeypatch, mod)
         monkeypatch.setattr(mod, "sha256_file", lambda p: "deadbeef")
         monkeypatch.setattr(mod, "submit",
                             lambda p, s, c, chroots=None:
@@ -824,6 +872,8 @@ class TestPartialChrootRemediation:
         assert res["outcome"] == "pilot-not-clean"
         assert submits == [(mod.PILOT, ["leap-aarch64"])], (
             "пересобирать можно ТОЛЬКО неопубликованный chroot")
+        assert res["srpm_source"].startswith("pilot-build:"), (
+            "3/4 обязан брать SRPM существующей pilot-сборки, а не пересобирать")
         assert res["pilot_chroots"]["leap-aarch64"] == "failed"
         assert res.get("stable_submitted") is None, "pilot 3/4 не продвигается в stable"
 
@@ -831,9 +881,9 @@ class TestPartialChrootRemediation:
         """Одиночная сборка одного chroot (как наш canary) != 4/4."""
         seen = {"tw-aarch64": "succeeded", "tw-x86_64": "missing",
                 "leap-x86_64": "missing", "leap-aarch64": "missing"}
-        monkeypatch.setattr(mod, "make_srpm", lambda *a, **kw: "srpm")
+        seen = fake_pilot_srpm(monkeypatch, mod)
         monkeypatch.setattr(mod, "sha256_file", lambda p: "deadbeef")
-        monkeypatch.setattr(mod, "submit", lambda p, s, c: "11065107")
+        monkeypatch.setattr(mod, "submit", lambda p, s, c, chroots=None: "11065107")
         monkeypatch.setattr(mod, "wait_exact_4_4", lambda *a, **kw: (1, seen, "1/4"))
         monkeypatch.setattr(mod, "build_still_active", lambda *a, **kw: False)
         pkg = {"name": "dysk", "target": "3.7.1", "pilot_build": 11064066,
@@ -844,13 +894,15 @@ class TestPartialChrootRemediation:
         assert res["outcome"] != "promoted"
         assert res["outcome"] == "pilot-not-clean"
         assert res.get("pilot_resumed") is True      # наблюдение, не resubmit
+        assert seen["build_id"] == 11064066, (
+            "resumed-путь обязан брать SRPM ТОЙ сборки, что в плане")
 
     def test_missing_chroot_retry_then_promote_only_same_srpm(self, mod, tmp_path,
                                                                monkeypatch):
         """Повтор, давший 4/4, ведёт в stable в promote-only с ТЕМ ЖЕ SRPM."""
         calls = {}
 
-        def fake_fetch(name, target, builds, dest_dir):
+        def fake_fetch(name, target, builds, dest_dir, build_id=None):
             calls["fetch"] = (name, target)
             p = dest_dir / "dysk-3.7.1-1.fc44.src.rpm"
             p.parent.mkdir(parents=True, exist_ok=True)
@@ -910,3 +962,149 @@ class TestPartialChrootRemediation:
                  {"name": "gum", "outcome": "promoted"}]
         assert [i["name"] for i in mod.deferred_items(items)] == ["dysk"]
         assert [i["name"] for i in mod.failed_items(items)] == ["dysk"]
+
+
+class TestExactSrpmIdentity:
+    """P0: remediation 3/4 и resume обязаны работать с ТЕМ ЖЕ SRPM, что в pilot.
+
+    Свежий make_srpm() в этих сценариях дал бы другой артефакт, и в репозитории
+    оказались бы два SRPM на один target: три chroot'а — от старого, четвёртый и
+    stable — от нового. Ниже фиксируется и запрет make_srpm, и то, что файл,
+    который реально уходит в submit, байт-в-байт совпадает со скачанным.
+    """
+
+    URL = "https://copr.example/pilot/3.7.1/dysk-3.7.1-1.fc44.src.rpm"
+    PAYLOAD = b"\x1f\x8bEXACT-PILOT-SRPM-BYTES\x00\x01\x02" * 7
+
+    @staticmethod
+    def _build(bid, state, url=URL, version="3.7.1", name="dysk"):
+        return {"id": bid, "state": state,
+                "source_package": {"name": name, "version": version, "url": url}}
+
+    @staticmethod
+    def _install_urlopen(monkeypatch, mod, served):
+        """served: url -> bytes. Возвращает список реально запрошенных url."""
+        import urllib.request as _u
+
+        class _Resp:
+            def __init__(self, payload):
+                self._p, self._done = payload, False
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self, size=-1):
+                if self._done:
+                    return b""
+                self._done = True
+                return self._p
+
+        asked = []
+
+        def fake_urlopen(url, timeout=None, data=None):
+            asked.append(str(url))
+            if str(url) not in served:
+                raise OSError(f"не отдал сервер: {url}")
+            return _Resp(served[str(url)])
+
+        monkeypatch.setattr(mod.urllib.request, "urlopen", fake_urlopen)
+        return asked
+
+    def test_fetch_is_byte_identical_and_sha_matches(self, mod, tmp_path, monkeypatch):
+        asked = self._install_urlopen(monkeypatch, mod, {self.URL: self.PAYLOAD})
+        path, sha, bid = mod.fetch_pilot_srpm("dysk", "3.7.1",
+                                              [self._build(11064066, "succeeded")],
+                                              tmp_path / "SRPMS")
+        assert asked == [self.URL]
+        with open(path, "rb") as fh:
+            assert fh.read() == self.PAYLOAD, "сохранённый SRPM обязан быть байт-в-байт"
+        assert sha == hashlib.sha256(self.PAYLOAD).hexdigest()
+        assert sha == mod.sha256_file(path), "возвращённый sha256 обязан совпадать с файлом"
+        assert bid == 11064066
+
+    def test_plan_build_id_wins_over_succeeded(self, mod, tmp_path, monkeypatch):
+        """Resumed: берём SRPM ровно той сборки, что в плане, а не succeeded."""
+        active_url = "https://copr.example/active/3.7.1/dysk-3.7.1-1.fc44.src.rpm"
+        builds = [self._build(11064066, "succeeded"),
+                  self._build(11065107, "running", url=active_url)]
+        asked = self._install_urlopen(monkeypatch, mod,
+                                      {active_url: self.PAYLOAD, self.URL: b"OTHER-SRPM"})
+        path, sha, bid = mod.fetch_pilot_srpm(
+            "dysk", "3.7.1", builds, tmp_path / "SRPMS", build_id=11065107)
+        assert asked == [active_url], "нельзя молча подменять на succeeded-сборку"
+        assert bid == 11065107
+        assert sha == hashlib.sha256(self.PAYLOAD).hexdigest()
+
+    def test_plan_build_missing_is_hard_error(self, mod, tmp_path, monkeypatch):
+        self._install_urlopen(monkeypatch, mod, {self.URL: self.PAYLOAD})
+        with pytest.raises(mod.WaveError) as ei:
+            mod.fetch_pilot_srpm("dysk", "3.7.1",
+                                 [self._build(11064066, "succeeded")],
+                                 tmp_path / "SRPMS", build_id=99999999)
+        assert "99999999" in str(ei.value)
+
+    def test_partial_without_srpm_is_hard_error(self, mod, tmp_path, monkeypatch):
+        """3/4 без скачиваемого SRPM = не пытаемся пересобрать, а падаем."""
+        self._install_urlopen(monkeypatch, mod, {})
+        with pytest.raises(mod.WaveError) as ei:
+            mod.fetch_pilot_srpm("dysk", "3.7.1", [], tmp_path / "SRPMS")
+        assert "byte-идентичности" in str(ei.value)
+
+    @pytest.mark.parametrize("scenario", ["partial-3-of-4", "resumed-pilot"])
+    def test_make_srpm_is_forbidden_in_partial_and_resume(self, mod, scenario, tmp_path,
+                                                          monkeypatch):
+        forbidden = []
+        monkeypatch.setattr(mod, "make_srpm",
+                            lambda *a, **kw: forbidden.append(a) or "/forbidden")
+        monkeypatch.setattr(mod, "sha256_file", lambda p: "aa")
+        seen = fake_pilot_srpm(monkeypatch, mod)
+        monkeypatch.setattr(mod, "probe_all", probe_stub(
+            mod,
+            pilot_per={"tw-x86_64": {"dysk": {"3.7.1"}}, "tw-aarch64": {"dysk": {"3.7.1"}},
+                       "leap-x86_64": {"dysk": {"3.7.1"}}, "leap-aarch64": {}},
+            stable_per={}))
+        monkeypatch.setattr(
+            mod, "submit", lambda p, s, c, chroots=None: "11065107")
+        monkeypatch.setattr(
+            mod, "await_stage",
+            lambda *a, **kw: ("complete", {c: {"dysk": {"3.7.1"}} for c in self_chroots()}))
+        monkeypatch.setattr(mod, "verify_published", lambda *a, **kw: (True, {}))
+
+        pkg = {"name": "dysk", "target": "3.7.1",
+               "pilot_build": 11064066 if scenario == "resumed-pilot" else None,
+               "stable_build": None, "pilot_ok": False, "stable_ok": False,
+               "mode": "full", "force": False}
+        res = mod.process_package(pkg, ["tw-x86_64", "tw-aarch64",
+                                        "leap-x86_64", "leap-aarch64"],
+                                  None, None, tmp_path / "logs", 1.0, {}, [])
+
+        assert forbidden == [], f"{scenario}: make_srpm() вызван, exact-SRPM нарушен"
+        assert res["srpm_source"] == "pilot-build:11064066"
+        if scenario == "resumed-pilot":
+            assert seen["build_id"] == 11064066, "resume обязан идти за SRPM в плановую сборку"
+
+    def test_make_srpm_still_used_when_pilot_never_saw_target(self, mod, tmp_path,
+                                                              monkeypatch):
+        """Свежая полная сборка (репо пусто) — make_srpm обязателен, это не запрещено."""
+        calls = []
+        monkeypatch.setattr(mod, "make_srpm",
+                            lambda n, t, d: calls.append(n) or str(tmp_path / "fresh.src.rpm"))
+        monkeypatch.setattr(mod, "sha256_file", lambda p: "aa")
+        monkeypatch.setattr(mod, "probe_all", probe_stub(
+            mod, pilot_per={c: {} for c in self_chroots()},
+            stable_per={c: {} for c in self_chroots()}))
+        monkeypatch.setattr(mod, "submit", lambda p, s, c, chroots=None: "11065107")
+        monkeypatch.setattr(mod, "await_stage",
+                            lambda *a, **kw: ("complete", {}))
+        monkeypatch.setattr(mod, "verify_published", lambda *a, **kw: (True, {}))
+
+        res = mod.process_package({"name": "dysk", "target": "3.7.1", "pilot_build": None,
+                                   "stable_build": None, "pilot_ok": False,
+                                   "stable_ok": False, "mode": "full", "force": False},
+                                  self_chroots(), None, None, tmp_path / "logs",
+                                  1.0, {}, [])
+        assert calls == ["dysk"]
+        assert res["srpm_source"] == "fresh-make-srpm"

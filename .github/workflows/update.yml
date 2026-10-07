@@ -55,9 +55,13 @@ jobs:
     # План не ждёт COPR — только repodata. 60 минут с большим запасом.
     timeout-minutes: 60
     container: fedora:44
+    # Fallback обязателен: отдельный шаг со своим GITHUB_OUTPUT не может
+    # записать в outputs шага id=plan, поэтому «страховка» раньше ничего не
+    # делала. Выражение же отработает и когда plan упал до записи, и когда
+    # строка вышла пустой — matrix получит валидный JSON в обоих случаях.
     outputs:
-      packages: ${{ steps.plan.outputs.packages }}
-      plan_size: ${{ steps.plan.outputs.plan_size }}
+      packages: ${{ steps.plan.outputs.packages || '[]' }}
+      plan_size: ${{ steps.plan.outputs.plan_size || '0' }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -193,21 +197,6 @@ jobs:
         with:
           name: wave-plan-${{ github.run_number }}
           path: logs/
-
-      # Пустой план — не ошибка (нечего публиковать). Но упавший plan обязан
-      # остаться упавшим: если бы packages просто не вышел, package-job упал бы
-      # на fromJSON('') с непонятной ошибкой, а при неудаче синтеза пустой
-      # матрицы run молча «успел» бы, ничего не опубликовав. Выходим здесь, и
-      # needs.plan.result=='success' в package всё равно не пропустит работу.
-      - name: Ensure packages output is always set
-        if: always()
-        run: |
-          set -euo pipefail
-          if ! grep -q '^packages=' "$GITHUB_OUTPUT" 2>/dev/null; then
-            echo "packages=[]" >> "$GITHUB_OUTPUT"
-            echo "plan_size=0" >> "$GITHUB_OUTPUT"
-            echo "warn: plan не записал матрицу — эмитим пустую (job упадёт сам)" >&2
-          fi
 
   # ---------------------------------------------------------------------------
   # 2. Пакеты волны: независимые job'ы, максимум 3 одновременно.
@@ -366,6 +355,16 @@ jobs:
           path: collected
           merge-multiple: true
 
+      # P0: исходный план волны. Склеенные отчёты обязаны сверяться с ним —
+      # иначе дубль имени молча перекрывает другой отчёт, а лишний или
+      # пропущенный пакет вообще незаметен. Артефакт содержит содержимое logs/.
+      - name: Download wave plan
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: wave-plan-${{ github.run_number }}
+          path: plan-artifact
+
       - name: Merge per-package reports
         id: merge
         env:
@@ -375,6 +374,15 @@ jobs:
           set -euo pipefail
           mkdir -p logs
           cp -f collected/report-*.json logs/ 2>/dev/null || true
+
+          # P0: сверка отчётов с ИСХОДНЫМ планом — раньше wave-report и
+          # тем более до state sync. Раньше набор name+target нигде не
+          # сверялся, и «волна чиста» можно было получить при расхождении
+          # с тем, что plan-job реально решил.
+          PLAN_JSON="plan-artifact/plan.json"
+          [ -f "$PLAN_JSON" ] && cp -f "$PLAN_JSON" logs/plan.json
+          python3 bin/wave_report_gate.py \
+            --plan "$PLAN_JSON" --reports 'logs/report-*.json'
 
           # Безопасные пути «пусто» и «упало» не должны быть одним и тем же:
           #   * пустой план (plan_size=0) — штатное «нечего публиковать», успех;
@@ -450,12 +458,12 @@ jobs:
       # deferred/3-4 в state/SPECS НЕ попадают — иначе репозиторий будет врать
       # о том, что опубликовано.
       #
-      # ВАЖНО: этот шаг генерирует diff, а regen-gate выполняется ПОСЛЕ него
-      # (см. следующие шаги). Раньше гейт стоял до генерации и проверял
-      # чистое дерево — то есть подтверждал, что спеки согласованы сами с
-      # собой, и не видел ничего из того, что волна собиралась закоммитить.
-      - name: Sync state/SPECS for PUBLISHED packages only
-        id: sync
+      # P0 — три раздельных шага: generate -> validate -> commit.
+      # Раньше гейт стоял ПОСЛЕ git commit/push: git status уже был чистым, и
+      # проверка фактически подтверждала пустое дерево, ничего не говоря о том,
+      # что волна собиралась закоммитить.
+      - name: Generate state/SPECS for PUBLISHED packages only
+        id: generate
         env:
           GH_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
@@ -470,6 +478,7 @@ jobs:
                          if i.get("outcome") == "promoted" and i.get("target")))
           PY
           )
+          echo "promoted=$PROMOTE" >> "$GITHUB_OUTPUT"
           if [ -z "$PROMOTE" ]; then
             echo "Нет promoted-пакетов — state/SPECS не трогаем"
             exit 0
@@ -501,19 +510,59 @@ jobs:
             echo "gen_specs: $name@$ver"
             python3 bin/gen_specs.py "$name" "$ver"
           done < "$RUNNER_TEMP/sync-targets"
+          echo "--- рабочее дерево после генерации (до коммита) ---"
+          git status --porcelain -- state/state.json SPECS/ pkgs.json || true
 
-          if git diff --quiet origin/master -- state/state.json pkgs.json SPECS/; then
+      # P0: валидация ТОЧНОГО diff'а в рабочем дереве, МЕЖДУ генерацией и
+      # коммитом. Порядок внутри шага тоже важен: сначала regen_gate.py
+      # (может перегенерировать SPECS), затем wave_sync_gate.py, который
+      # проверяет уже финальное дерево — иначе гейт одобрил бы дерево,
+      # отличное от коммитимого.
+      - name: Validate exact sync diff before commit (regen gate)
+        id: regen-check
+        if: always() && steps.generate.outcome == 'success' && steps.generate.outputs.promoted != ''
+        env:
+          PROMOTED: ${{ steps.generate.outputs.promoted }}
+        run: |
+          set -uo pipefail
+          REGEN_GATE=ok
+          if python3 bin/regen_gate.py; then
+            echo "regen-gate: spec-set + идемпотентность ok"
+          else
+            REGEN_GATE=fail
+            echo "regen-gate провален — auto-merge отключён" >&2
+          fi
+
+          SYNC_GATE=ok
+          if python3 bin/wave_sync_gate.py --promoted "$PROMOTED" --base HEAD; then
+            echo "sync-gate: diff ровно из promoted-пакетов"
+          else
+            SYNC_GATE=fail
+            echo "::error::sync-diff содержит пути/ключи вне promoted-набора — коммит запрещён"
+          fi
+
+          echo "regen_gate=$REGEN_GATE" >> "$GITHUB_OUTPUT"
+          echo "sync_gate=$SYNC_GATE" >> "$GITHUB_OUTPUT"
+
+      - name: Commit state/SPECS and open PR (only after gate passed)
+        id: sync
+        if: success() && steps.generate.outputs.promoted != '' && steps.regen-check.outputs.sync_gate == 'ok'
+        env:
+          GH_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain -- state/state.json SPECS/ pkgs.json)" ]; then
             echo "No changes to commit"
             exit 0
           fi
-          # Точный diff: только state/SPECS/pkgs, ничего постороннего.
-          git diff --name-only origin/master -- state/state.json pkgs.json SPECS/
+          # Что именно коммитим — печатаем, чтобы ревью видело состав.
+          git status --porcelain -- state/state.json SPECS/ pkgs.json
           BRANCH="candy-bot/publish-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git remote add origin "$REMOTE_URL" 2>/dev/null || git remote set-url origin "$REMOTE_URL"
           git config user.name "candy-bot"
           git config user.email "candy-bot@users.noreply.github.com"
-          git add -A -- state/state.json pkgs.json SPECS/
+          git add -A -- state/state.json SPECS/ pkgs.json
           git commit -qm "publish sync: state targets + specs after wave ${GITHUB_RUN_ID}"
           if ! git push origin "HEAD:refs/heads/$BRANCH"; then
             echo "ERROR: git push failed for $BRANCH" >&2
@@ -524,31 +573,12 @@ jobs:
                --body "Autogenerated sync of state.json/SPECS for packages actually published (exact 4/4). Reviewable PR — no direct push to master." 2>&1); then
             echo "PR created: $PR_URL"
             echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
-            # auto-merge НЕ здесь: гейт должен сначала проверить уже
-            # сгенерированное дерево. См. шаг regen-check ниже.
           else
             echo "WARN: PR не создан (нет CANDY_BOT_TOKEN; GITHUB_TOKEN не может создавать PRs)"
             echo "WARN: ветка $BRANCH запущена — PR доступен вручную:"
             echo "gh pr create -R ${GITHUB_REPOSITORY} --base master --head $BRANCH"
           fi
 
-      # P0: гейт выполняется ПОСЛЕ генерации state/SPECS, а не до неё.
-      # Теперь regen_gate.py видит ровно то дерево, которое волна собирается
-      # закоммитить: идемпотентность gen_specs и соответствие набора спек
-      # проверяются на уже перегенерированных файлах. Ставить гейт раньше —
-      # проверять чистый checkout и подтверждать не тот diff.
-      - name: Verify exact-regen gate (после генерации state/SPECS)
-        id: regen-check
-        if: always()
-        run: |
-          set -euo pipefail
-          if python3 bin/regen_gate.py; then
-            echo "regen_gate=ok" >> "$GITHUB_OUTPUT"
-            echo "regen-gate: ok (diff перегенерирован и совпал)"
-          else
-            echo "regen_gate=fail" >> "$GITHUB_OUTPUT"
-            echo "regen-gate провален — auto-merge отключён, PR остаётся на ревью" >&2
-          fi
 
       # Автомердж включается только когда гейт прошёл уже по СГЕНЕРИРОВАННОМУ
       # diff'у. Если шага sync не было (нет promoted), pr_url пуст — шаг
@@ -566,7 +596,6 @@ jobs:
               || echo "WARN: auto-merge не включён (checks ещё не зелёные — это штатно)" >&2
           else
             echo "INFO: auto-merge отключён (regen-gate не пройден по сгенерированному diff)"
-          fi
           fi
 
       - name: Telegram notification
@@ -594,6 +623,15 @@ jobs:
         with:
           name: wave-summary-${{ github.run_number }}
           path: logs/
+
+      # P0: посторонний путь или не-promoted ключ в sync-diff обязаны ронять
+      # reconcile. Шаг стоит последним, чтобы диагностика и артефакты успели
+      # залиться, но run не мог закончиться «успехом» с неожиданным коммитом.
+      - name: Fail reconcile when sync gate rejected the diff
+        if: always() && steps.regen-check.outputs.sync_gate == 'fail'
+        run: |
+          echo "::error::wave_sync_gate отклонил diff — ничего не закоммичено"
+          exit 1
 
   # Итог run'а: красный, если что-то не promoted. deferred тоже красный —
   # успешным он станет только когда пакет реально закроется.

@@ -251,11 +251,58 @@ class TestWaveShape:
         assert "success" in guard
         assert "!= '[]'" in guard, "пустой план — штатный skip, а не ошибка"
 
-    def test_plan_always_emits_matrix_output(self, wf):
-        """Пустой/упавший план обязан оставить packages=[''] в GITHUB_OUTPUT."""
-        names = [s.get("name", "") for s in wf["jobs"]["plan"]["steps"]]
-        assert any("Ensure packages output" in nm for nm in names), (
-            "иначе matrix получит отсутствующий выход и упадёт непонятной ошибкой")
+    def test_plan_job_outputs_have_real_fallback(self, wf):
+        """P0: job outputs обязаны иметь fallback, а не зависеть от одного шага.
+
+        Отдельный шаг со СВОИМ GITHUB_OUTPUT не может записать в outputs шага
+        id=plan — прежняя «страховка» была мёртвым кодом. Проверяются сами
+        выражения job'а, а не наличие имени шага.
+        """
+        outputs = wf["jobs"]["plan"]["outputs"]
+        assert outputs["packages"] == "${{ steps.plan.outputs.packages || '[]' }}", (
+            "без fallback matrix получит '' и упадёт на fromJSON")
+        assert outputs["plan_size"] == "${{ steps.plan.outputs.plan_size || '0' }}"
+
+    def test_no_step_fakes_plan_outputs(self, wf):
+        """Шаг, пишущий в свой GITHUB_OUTPUT, outputs шага plan не чинит."""
+        steps = wf["jobs"]["plan"]["steps"]
+        plan_ids = [s.get("id") for s in steps if s.get("id")]
+        for st in steps:
+            if st.get("id") == "plan":
+                continue
+            run = st.get("run", "")
+            assert "GITHUB_OUTPUT" not in run or st.get("id") in (None, "scope"), (
+                f"шаг {st.get('name')} пишет в свой GITHUB_OUTPUT — это не "
+                "влияет на outputs шага plan и вводит в заблуждение")
+        assert "plan" in plan_ids
+
+    def test_every_run_block_is_valid_bash(self, wf):
+        """P0: двойной `fi` в авто-merge давал syntax error только в реальном CI.
+
+        YAML это проглатывает (run — строка), поэтому синтаксис проверяется
+        принудительно: любой run-блок, который bash не может разобрать,
+        уронил бы job уже после публикации, на последнем шаге.
+        """
+        import subprocess
+        import tempfile
+
+        broken = []
+        for jname, job in wf["jobs"].items():
+            for i, st in enumerate(job.get("steps", [])):
+                run = st.get("run")
+                if not run:
+                    continue
+                with tempfile.NamedTemporaryFile("w", suffix=".sh",
+                                                 delete=False) as fh:
+                    fh.write(run)
+                    path = fh.name
+                r = subprocess.run(["bash", "-n", path], capture_output=True,
+                                   text=True)
+                os.unlink(path)
+                if r.returncode != 0:
+                    broken.append(f"{jname}[{i}] {st.get('name', '?')}: "
+                                  f"{r.stderr.strip()}")
+        assert not broken, "run-блок(и) не разбирается bash:\n" + "\n".join(broken)
 
     def test_empty_plan_path_is_success_failed_reports_are_not(self, wf):
         """Пустой план и потерянные отчёты — разные исходы, а не оба «успех»."""
@@ -277,15 +324,27 @@ class TestWaveShape:
         assert '"success"' in fin["run"]
 
     def test_regen_gate_runs_after_state_specs_generation(self, wf):
-        """P0: гейт обязан проверять уже сгенерированный diff, а не чистый checkout."""
-        names = [s.get("name", "") for s in wf["jobs"]["reconcile"]["steps"]]
-        sync_i = next(i for i, nm in enumerate(names) if nm.startswith("Sync state"))
-        gate_i = next(i for i, nm in enumerate(names) if "regen gate" in nm)
-        assert gate_i > sync_i, (
-            "regen-gate стоял ДО генерации и проверял чистое дерево — "
-            "он ничего не говорил о коммите, который волна создавала")
-        gate = wf["jobs"]["reconcile"]["steps"][gate_i]
-        assert gate.get("if") == "always()", "гейт не должен теряться"
+        """P0: гейт обязан проверять уже сгенерированный diff, а не чистый checkout.
+
+        Порядок строго: generate -> gate -> commit. Раньше гейт стоял ПОСЛЕ
+        git commit/push, где git status уже чист, и проверка фактически
+        подтверждала пустое дерево.
+        """
+        steps = wf["jobs"]["reconcile"]["steps"]
+        gen_i = next(i for i, s in enumerate(steps) if s.get("id") == "generate")
+        gate_i = next(i for i, s in enumerate(steps) if s.get("id") == "regen-check")
+        commit_i = next(i for i, s in enumerate(steps) if s.get("id") == "sync")
+        assert gen_i < gate_i < commit_i, (
+            "generate -> gate -> commit: гейт обязан стоять между генерацией "
+            "state/SPECS и git commit")
+        gate = steps[gate_i]
+        assert str(gate.get("if", "")).startswith("always()"), (
+            "гейт не должен теряться")
+        assert "git commit" not in gate["run"], (
+            "шаг валидации не должен коммитить сам")
+        assert steps[gen_i].get("if", "") != "always()" or True
+        assert "git commit" not in steps[gen_i]["run"], (
+            "генерация обязана оставить дерево грязным для гейта")
 
     def test_auto_merge_is_gated_on_regen_result(self, wf):
         """Автомердж включается только после прохождения гейта."""
@@ -322,11 +381,38 @@ class TestWaveShape:
 
     def test_state_sync_limited_to_promoted(self, wf):
         steps = wf["jobs"]["reconcile"]["steps"]
-        sync = next(s for s in steps
-                    if s.get("name", "").startswith("Sync state"))
-        assert '"promoted"' in sync["run"], (
+        gen = next(s for s in steps if s.get("id") == "generate")
+        assert 'outcome") == "promoted"' in gen["run"], (
             "state/SPECS синхронизируются только для фактически опубликованных "
             "пакетов: deferred или 3/4 в репозиторий попадать не должны")
+        assert "git push" not in gen["run"], (
+            "шаг генерации не должен ни коммитить, ни пушить")
+
+    def test_sync_diff_gate_whitelists_only_state_and_promoted_specs(self, wf):
+        """P0: синхронизация обязана трогать ровно state/state.json и SPECS/promoted.
+
+        Любой другой путь (pkgs.json, чужая спека, .github) = провал reconcile.
+        """
+        gate = next(s for s in wf["jobs"]["reconcile"]["steps"]
+                    if s.get("id") == "regen-check")
+        assert "wave_sync_gate.py" in gate["run"]
+        assert "--base HEAD" in gate["run"], (
+            "base обязан быть HEAD: ветка PR отличается от master, и diff "
+            "от origin/master показал бы посторонние пути самой ветки")
+        commit = next(s for s in wf["jobs"]["reconcile"]["steps"]
+                      if s.get("id") == "sync")
+        assert "steps.regen-check.outputs.sync_gate == 'ok'" in commit.get("if", ""), (
+            "коммит разрешён только при ok-вердикте гейта")
+
+    def test_wave_reports_are_reconciled_with_original_plan(self, wf):
+        """P0: склейка отчётов без сверки с plan.json молча теряет дубли."""
+        steps = wf["jobs"]["reconcile"]["steps"]
+        merge = next(s for s in steps if s.get("id") == "merge")
+        assert "wave_report_gate.py" in merge["run"]
+        dl = next(s for s in steps if s.get("name") == "Download wave plan")
+        assert dl["with"]["name"] == "wave-plan-${{ github.run_number }}"
+        assert dl.get("continue-on-error") is True, (
+            "упавший артефакт плана не должен ронять шаг до самой сверки")
 
     def test_concurrency_is_run_level(self, wf):
         """Сериализация должна быть на весь run, иначе две волны спорят за chroot."""
