@@ -108,15 +108,25 @@ def decompress_metadata(raw: bytes, href: str) -> bytes:
 
 def parse_primary(primary_xml: bytes, name: str,
                   wanted_version: str | None = None) -> dict:
-    """Найти пакет в primary.xml -> {version, location, checksum, checksum_type}."""
+    """Найти БИНАРНЫЙ пакет в primary.xml -> {version, arch, location, ...}.
+
+    Source-rpm (arch src/nosrc) пропускаются: он присутствует в COPR-метаданных,
+    но zypper скачивает бинарник, и сравнение его sha256 с checksum src.rpm дало
+    бы ложный «checksum mismatch». Нам нужен именно тот артефакт, что скачается.
+    """
     try:
         root = ET.fromstring(primary_xml)
     except ET.ParseError as exc:
         raise PreflightError(f"metadata: primary не разбирается: {exc}") from exc
     seen: list[str] = []
+    src_archs = {"src", "nosrc"}
     for pkg in root.findall("c:package", COMMON_NS):
         n_el = pkg.find("c:name", COMMON_NS)
         if n_el is None or n_el.text != name:
+            continue
+        arch_el = pkg.find("c:arch", COMMON_NS)
+        arch = arch_el.text if arch_el is not None else None
+        if (arch or "").lower() in src_archs:
             continue
         ver_el = pkg.find("c:version", COMMON_NS)
         ver = ver_el.get("ver") if ver_el is not None else None
@@ -127,6 +137,7 @@ def parse_primary(primary_xml: bytes, name: str,
         cks = pkg.find("c:checksum", COMMON_NS)
         return {
             "version": ver,
+            "arch": arch,
             "location": (loc.get("href") if loc is not None else None),
             "checksum": (cks.text.strip() if cks is not None and cks.text else None),
             "checksum_type": (cks.get("type") if cks is not None else None),
@@ -136,6 +147,19 @@ def parse_primary(primary_xml: bytes, name: str,
             f"metadata: {name} есть в primary, но версии {wanted_version!r} нет "
             f"(доступны: {sorted(set(seen))})")
     raise PreflightError(f"metadata: пакет {name} отсутствует в primary")
+
+
+def copr_pubkey_url(repo_url: str) -> str | None:
+    """URL GPG-ключа COPR-проекта: лежит рядом с chroot-каталогом.
+
+    Без этого ключа zypper валит refresh на «Signature verification failed»
+    для repomd.xml — это не сломанное зеркало, а неимпортированный ключ.
+    """
+    base = repo_url.rstrip("/")
+    if "download.copr." not in base:
+        return None
+    parent = base.rsplit("/", 1)[0]
+    return f"{parent}/pubkey.gpg"
 
 
 def parse_rpm_nv(runner, rpm_path: str) -> tuple[str, str]:
@@ -268,6 +292,31 @@ def probe(cfg: dict, runner=None, fetcher=None, log_dir=None) -> dict:
                 step("zypper-addrepo", False,
                      reason=f"zypper: addrepo rc={rc}: {(err or out).strip()[:200]}",
                      cmd=" ".join(add), rc=rc)
+        if not reasons:
+            # COPR-репозитории подписаны ключом проекта; без импорта zypper
+            # валит refresh на проверке подписи repomd.xml.
+            key_url = copr_pubkey_url(base)
+            if key_url:
+                key_path = str((log_dir or Path(".")) / "copr-pubkey.gpg")
+                try:
+                    key_raw = fetcher(key_url)
+                    if log_dir:
+                        log_dir.mkdir(parents=True, exist_ok=True)
+                    with open(key_path, "wb") as fh:
+                        fh.write(key_raw)
+                    rc, out, err = runner.run(["rpm", "--import", key_path], timeout=60)
+                    if rc != 0:
+                        step("pubkey", False,
+                             reason="transport: rpm --import ключа COPR "
+                                    f"rc={rc}: {(err or out).strip()[:200]}",
+                             cmd="rpm --import copr-pubkey.gpg", rc=rc)
+                    else:
+                        step("pubkey", True, detail=key_url)
+                except PreflightError as exc:
+                    step("pubkey", False, reason=str(exc))
+                except Exception as exc:  # noqa: BLE001 — ключ недоступен => red
+                    step("pubkey", False,
+                         reason=f"transport: не скачался ключ COPR: {exc}")
         if not reasons:
             refresh = ["zypper", "-n", "--gpg-auto-import-keys", "refresh", alias]
             rc, out, err = runner.run(refresh, timeout=900)
