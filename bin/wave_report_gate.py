@@ -58,11 +58,18 @@ def load_plan(path: str) -> tuple[dict[str, str], int | None, list[str]]:
             problems.append(f"{path}: элемент плана не объект: {pkg!r}")
             continue
         name = pkg.get("name")
-        if not name:
+        target = pkg.get("target")
+        if not (isinstance(name, str) and name.strip()):
+            problems.append(
+                f"{path}: элемент плана без непустого name: {pkg!r}")
+            continue
+        if not (isinstance(target, str) and target.strip()):
+            problems.append(
+                f"{path}: план: пакет {name} без непустого target: {pkg!r}")
             continue
         if name in expected:
             problems.append(f"план: пакет {name} встречается больше одного раза")
-        expected[name] = pkg.get("target")
+        expected[name] = target
 
     size = data.get("plan_size")
     if not isinstance(size, int) or isinstance(size, bool):

@@ -102,6 +102,44 @@ class TestReportGateMatchesPlan:
                                          str(tmp_path / "logs/report-*.json"))
         assert any("план: пакет dysk" in p for p in problems), problems
 
+    def test_plan_element_without_name_is_rejected(self, tmp_path):
+        """Регрессия: `[{}, {dysk}]` с plan_size=2 и одним отчётом проходил.
+
+        Пустой элемент плана молча выпадал из набора ожидаемых, и сверка
+        «report dysk == plan dysk» давала ложно-зелёный результат.
+        """
+        _plan(tmp_path / "plan.json",
+              [{}, {"name": "dysk", "target": "3.7.1"}])
+        _write_report(tmp_path / "logs/report-dysk.json",
+                      [{"name": "dysk", "target": "3.7.1", "outcome": "promoted"}])
+        problems = report_gate.reconcile(str(tmp_path / "plan.json"),
+                                         str(tmp_path / "logs/report-*.json"))
+        assert problems, "элемент плана без name не может молча выпасть"
+        assert any("без непустого name" in p for p in problems), problems
+
+    @pytest.mark.parametrize("bad", [
+        {},
+        {"target": "3.7.1"},                       # нет name
+        {"name": "", "target": "3.7.1"},           # пустой name
+        {"name": "   ", "target": "3.7.1"},        # пробельный name
+        {"name": None, "target": "3.7.1"},
+        {"name": 42, "target": "3.7.1"},           # не строка
+        {"name": "dysk"},                          # нет target
+        {"name": "dysk", "target": ""},            # пустой target
+        {"name": "dysk", "target": "   "},         # пробельный target
+        {"name": "dysk", "target": None},
+        {"name": "dysk", "target": 42},            # не строка
+    ])
+    def test_plan_element_without_nonempty_name_and_target_is_rejected(
+            self, tmp_path, bad):
+        _plan(tmp_path / "plan.json", [bad, {"name": "dua", "target": "2.45.1"}])
+        _write_report(tmp_path / "logs/report-dua.json",
+                      [{"name": "dua", "target": "2.45.1", "outcome": "promoted"}])
+        problems = report_gate.reconcile(str(tmp_path / "plan.json"),
+                                         str(tmp_path / "logs/report-*.json"))
+        assert problems, f"битый элемент плана обязан ронять сверку: {bad!r}"
+        assert any("без непустого" in p for p in problems), problems
+
     def test_reports_without_plan_artifact_fail(self, tmp_path):
         """Скачали отчёты, плана нет — сверять не с чем, итог недостоверен."""
         _write_report(tmp_path / "logs/report-dysk.json",

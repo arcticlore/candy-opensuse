@@ -1127,13 +1127,19 @@ class TestProvenanceSeparation:
     Регрессии, которые здесь закреплены:
       * у терминального 3/4 `pilot_build` = None, но provenance-источник
         обязан присутствовать как отдельный `pilot_srpm_build`;
+      * пин привязан к ТОЧНОЙ паре (имя, нормализованный target) и не
+        отравляет будущие версии того же пакета;
       * fetch идёт строго по ТОЧНОМУ id; никакого «найди succeeded-сборку
         той же версии» — подмена дала бы второй SRPM на один target;
       * helper `succeeded_build_url` удалён как таковой.
     """
 
-    TERMINAL = {"dua": 11063545, "dysk": 11064066,
-                "ghfetch": 11064212, "pokemon-icat": 11064380}
+    TERMINAL = {
+        ("dua", "2.45.1"): 11063545,
+        ("dysk", "3.7.1"): 11064066,
+        ("ghfetch", "20261002.4b44a4f"): 11064212,
+        ("pokemon-icat", "20261002.54d4bc5"): 11064380,
+    }
 
     @staticmethod
     def _build(bid, state, name="dysk", version="3.7.1",
@@ -1143,6 +1149,44 @@ class TestProvenanceSeparation:
 
     def test_terminal_ids_are_pinned_exactly(self, mod):
         assert mod.PILOT_SRPM_PROVENANCE == self.TERMINAL
+
+    def test_pin_does_not_leak_to_a_future_version(self, mod):
+        """Пин keyed по (имя, target): будущая версия НЕ получает старый SRPM."""
+        hist = [("running", "3.8.0-1.fc44", 12000000)]
+        assert mod.pilot_srpm_build_for("dysk", "3.8.0", hist, 12000000) == 12000000
+        assert mod.pilot_srpm_build_for("dysk", "3.8.0", hist, 12000000) != 11064066
+        # без активной сборки новый target не откатывается на старый пин
+        assert mod.pilot_srpm_build_for("dysk", "3.8.0", hist, None) is None
+
+    def test_pin_matches_normalized_target_only(self, mod):
+        """target нормализуется по базовой версии; чужая версия пин не берёт."""
+        assert mod.pilot_srpm_build_for("dysk", "3.7.1-2.fc44", [], None) == 11064066
+        assert mod.pilot_srpm_build_for("dysk", "3.7.2-1.fc44", [], None) is None
+        assert mod.pilot_srpm_build_for("dua", "2.45.2", [], None) is None
+
+    def test_future_succeeded_target_gets_its_own_succeeded_id(self, mod):
+        """Обычный promote-only: берём ДОКАЗАННУЮ succeeded-сборку этого target."""
+        hist = [("succeeded", "3.8.0-1.fc44", 12000001)]
+        assert mod.pilot_srpm_build_for("dysk", "3.8.0", hist, None) == 12000001
+
+    def test_terminal_failed_target_without_pin_is_not_substituted(self, mod):
+        """Нет активной и нет succeeded — fail-closed, никакой подмены."""
+        hist = [("failed", "3.8.0-1.fc44", 12000002)]
+        assert mod.pilot_srpm_build_for("dysk", "3.8.0", hist, None) is None
+        # новейший build target'а, но НЕ succeeded — не выбирается
+        hist2 = [("failed", "3.8.0-1.fc44", 12000003),
+                 ("failed", "3.8.0-2.fc44", 12000004)]
+        assert mod.pilot_srpm_build_for("dysk", "3.8.0", hist2, None) is None
+
+    def test_future_active_build_uses_new_id_not_the_old_pin(self, mod):
+        hist = {"dysk": [("running", "3.8.0-1.fc44", 12000000)]}
+        plan = mod.build_plan([{"name": "dysk", "prio": 5, "enabled": True}],
+                              {"dysk": "3.8.0"}, hist, 5, stable_hist={},
+                              pilot_published={}, stable_published={},
+                              pilot_completed={}, stable_completed={})
+        assert plan[0]["pilot_build"] == 12000000
+        assert plan[0]["pilot_srpm_build"] == 12000000
+        assert plan[0]["pilot_srpm_build"] != 11064066
 
     def test_legacy_succeeded_helper_is_gone(self, mod):
         assert not hasattr(mod, "succeeded_build_url"), (
@@ -1162,14 +1206,14 @@ class TestProvenanceSeparation:
         assert entry["pilot_srpm_build"] == 11064066, (
             "provenance обязан указывать на источник опубликованных chroot'ов")
 
-    @pytest.mark.parametrize("name", sorted(TERMINAL))
-    def test_provenance_survives_into_the_plan_entry(self, mod, name):
-        hist = {name: [("failed", "3.7.1-1.fc44", 42)]}
+    @pytest.mark.parametrize("name,target", sorted(TERMINAL))
+    def test_provenance_survives_into_the_plan_entry(self, mod, name, target):
+        hist = {name: [("failed", f"{target}-1.fc44", 42)]}
         plan = mod.build_plan([{"name": name, "prio": 5, "enabled": True}],
-                              {name: "3.7.1"}, hist, 5, stable_hist={},
+                              {name: target}, hist, 5, stable_hist={},
                               pilot_published={}, stable_published={},
                               pilot_completed={}, stable_completed={})
-        assert plan[0]["pilot_srpm_build"] == self.TERMINAL[name]
+        assert plan[0]["pilot_srpm_build"] == self.TERMINAL[(name, target)]
         assert plan[0]["pilot_build"] is None
 
     def test_fetch_without_build_id_is_fail_closed(self, mod, tmp_path):

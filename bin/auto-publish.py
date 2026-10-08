@@ -192,11 +192,14 @@ def active_build(hist: list[tuple[str, str, int]], target: str | None = None) ->
 # версии» нельзя: у терминального parent'а state != succeeded, а более старая
 # зелёная сборка той же базовой версии несла бы ДРУГОЙ SRPM — в репозитории
 # оказались бы два артефакта на один target.
+#
+# Ключ — ТОЧНАЯ пара (имя, нормализованный target). Пин по одному имени
+# «протух» бы на следующей версии и отдавал бы старый SRPM новому target'у.
 PILOT_SRPM_PROVENANCE = {
-    "dua": 11063545,
-    "dysk": 11064066,
-    "ghfetch": 11064212,
-    "pokemon-icat": 11064380,
+    ("dua", "2.45.1"): 11063545,
+    ("dysk", "3.7.1"): 11064066,
+    ("ghfetch", "20261002.4b44a4f"): 11064212,
+    ("pokemon-icat", "20261002.54d4bc5"): 11064380,
 }
 
 
@@ -211,19 +214,21 @@ def pilot_srpm_build_for(name: str, target: str,
     ровно та сборка, которой уже опубликованы успешные chroot'ы.
 
     Порядок:
-      1. явный provenance (терминальные 3/4) — авторитетен, не подменяется;
-      2. активная сборка этого target — она и есть источник своего SRPM;
-      3. самая новая сборка target'а из истории — закрывает promote-only,
-         где pilot уже 4/4 и активной сборки нет.
-    Ничего не нашлось -> None, и fetch уйдёт в fail-closed.
+      1. точный пин по паре (имя, нормализованный target) — авторитетен;
+      2. активная сборка ИМЕННО этого target;
+      3. ДОКАЗАННАЯ succeeded-сборка этого target (обычный promote-only,
+         где pilot уже 4/4 и активной сборки нет);
+      4. иначе None — fetch уйдёт в fail-closed.
+    Новейшая сборка target'а, независимо от state, НЕ выбирается: terminal
+    failed parent не доказательство provenance и не должен подменяться.
     """
-    pinned = PILOT_SRPM_PROVENANCE.get(name)
+    pinned = PILOT_SRPM_PROVENANCE.get((name, ver_base(target)))
     if pinned is not None:
         return pinned
     if active is not None:
         return active
-    for _state, ver, bid in hist:
-        if ver_base(ver) == ver_base(target):
+    for state, ver, bid in hist:
+        if state == "succeeded" and ver_base(ver) == ver_base(target):
             return bid
     return None
 
