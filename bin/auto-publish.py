@@ -33,6 +33,11 @@ target-версии перехватывается по существующем
   * единственный чистый исход пакета — `promoted` (stable exact 4/4);
     `srpm-skip`, `not-attempted`, `pilot-not-clean`, `stable-not-clean`,
     `pipeline-error` и любые прочие — FAILURE и роняют run;
+  * `deferred` — НЕ успех и НЕ провал: сборка ещё не терминальна на момент
+    истечения времени наблюдения. Run при этом не «зелёный» (rc=1), но и
+    перезапуск не нужен: следующая волна подхватит тот же build id через
+    active_build. Так COPR, который считает дольше GitHub job, не приводит ни к
+    resubmit, ни к потере state/spec-гейта;
   * пакет остаётся в плане, если pilot-цель зелёная, а stable-цель ещё не
     зелёная (failed/missing/active) — иначе stable-гэпы никогда не закрываются;
   * если pilot-цель уже зелёная, в stable уходит ТОТ ЖЕ SRPM из pilot-сборки
@@ -58,8 +63,11 @@ from pathlib import Path
 
 from copr_published import (  # repodata = источник правды о публикации
     PublishProbeError,
-    fetch_published,
+    chroot_presence,
+    completed_table,
+    fetch_published_per_chroot,
     has_newer,
+    is_complete,
     target_published as repodata_has_target,
 )
 from copr_waiter import (  # переиспользуемый state machine (тот же, что в CI)
@@ -177,17 +185,51 @@ def active_build(hist: list[tuple[str, str, int]], target: str | None = None) ->
     return None
 
 
-def succeeded_build_url(builds: list[dict], name: str, target: str) -> tuple[int, str] | None:
-    """(build_id, srpm_url) последней УСПЕШНОЙ сборки name@target в проекте."""
-    for b in sorted(builds, key=lambda x: x.get("id", 0), reverse=True):
-        sp = b.get("source_package") or {}
-        if sp.get("name") != name or b.get("state") != "succeeded":
-            continue
-        if ver_base(sp.get("version", "")) != ver_base(target):
-            continue
-        url = sp.get("url")
-        if url:
-            return b["id"], url
+# Provenance точного pilot-SRPM для терминальных 3/4-пакетов.
+#
+# Эти сборки уже опубликовали успешные chroot'ы, поэтому их артефакт и есть
+# источник истины для remediation. Искать «любую succeeded-сборку той же
+# версии» нельзя: у терминального parent'а state != succeeded, а более старая
+# зелёная сборка той же базовой версии несла бы ДРУГОЙ SRPM — в репозитории
+# оказались бы два артефакта на один target.
+#
+# Ключ — ТОЧНАЯ пара (имя, нормализованный target). Пин по одному имени
+# «протух» бы на следующей версии и отдавал бы старый SRPM новому target'у.
+PILOT_SRPM_PROVENANCE = {
+    ("dua", "2.45.1"): 11063545,
+    ("dysk", "3.7.1"): 11064066,
+    ("ghfetch", "20261002.4b44a4f"): 11064212,
+    ("pokemon-icat", "20261002.54d4bc5"): 11064380,
+}
+
+
+def pilot_srpm_build_for(name: str, target: str,
+                         hist: list[tuple[str, str, int]],
+                         active: int | None) -> int | None:
+    """Точный id pilot-сборки-ИСТОЧНИКА SRPM для target (отдельно от resume).
+
+    `pilot_build` отвечает «за какую сборку продолжать наблюдение» — это
+    НЕтерминальная активная сборка, и для терминального 3/4 она равна None.
+    `pilot_srpm_build` отвечает «чей SRPM переиспользуем» — и для 3/4 это
+    ровно та сборка, которой уже опубликованы успешные chroot'ы.
+
+    Порядок:
+      1. точный пин по паре (имя, нормализованный target) — авторитетен;
+      2. активная сборка ИМЕННО этого target;
+      3. ДОКАЗАННАЯ succeeded-сборка этого target (обычный promote-only,
+         где pilot уже 4/4 и активной сборки нет);
+      4. иначе None — fetch уйдёт в fail-closed.
+    Новейшая сборка target'а, независимо от state, НЕ выбирается: terminal
+    failed parent не доказательство provenance и не должен подменяться.
+    """
+    pinned = PILOT_SRPM_PROVENANCE.get((name, ver_base(target)))
+    if pinned is not None:
+        return pinned
+    if active is not None:
+        return active
+    for state, ver, bid in hist:
+        if state == "succeeded" and ver_base(ver) == ver_base(target):
+            return bid
     return None
 
 
@@ -200,8 +242,14 @@ def prioritize(pkgs: list[dict]):
     return sorted(pkgs, key=lambda p: (p.get("prio", 5), p["name"]))
 
 
-def probe_published(project: str, chroots: list[str]) -> dict[str, set[str]]:
-    """Что реально опубликовано в проекте, по repodata каждого chroot.
+def probe_all(project: str, chroots: list[str]) -> dict:
+    """Один проход по repodata проекта: union, per-chroot и intersection.
+
+    Раньше union и intersection читались независимо (по четыре HTTP-запроса
+    каждый), хотя intersection — это пересечение тех же самых per-chroot
+    таблиц. Один проход убирает половину запросов и, главное, исключает
+    рассинхрон между двумя чтениями: union и intersection теперь всегда
+    описывают ОДИН момент времени.
 
     Fail closed: если реподата недоступна или не разобралась, состояние
     репозитория НЕИЗВЕСТНО, а при неизвестном состоянии любая сборка рискует
@@ -209,9 +257,24 @@ def probe_published(project: str, chroots: list[str]) -> dict[str, set[str]]:
     """
     owner, name = api_project(project)
     try:
-        return fetch_published(name, chroots, owner=owner)
+        per = fetch_published_per_chroot(name, chroots, owner=owner)
     except PublishProbeError as exc:
         raise WavePlanError(f"repodata {project} недоступна: {exc}") from exc
+    union: dict[str, set[str]] = {}
+    for table in per.values():
+        for pkg, versions in table.items():
+            union.setdefault(pkg, set()).update(versions)
+    return {"union": union, "per_chroot": per, "completed": completed_table(per)}
+
+
+def probe_published(project: str, chroots: list[str]) -> dict[str, set[str]]:
+    """Union по всем chroot: годится для анти-даунгрейда, НЕ для «цель достигнута»."""
+    return probe_all(project, chroots)["union"]
+
+
+def probe_completed(project: str, chroots: list[str]) -> dict[str, set[str]]:
+    """Версии, опубликованные ВО ВСЕХ chroot (пересечение repodata)."""
+    return probe_all(project, chroots)["completed"]
 
 
 def target_is_stale(published: dict[str, set[str]] | None, name: str, target: str) -> bool:
@@ -244,21 +307,26 @@ def build_plan(
     stable_hist: dict[str, list[tuple[str, str, int]]] | None = None,
     pilot_published: dict[str, set[str]] | None = None,
     stable_published: dict[str, set[str]] | None = None,
+    pilot_completed: dict[str, set[str]] | None = None,
+    stable_completed: dict[str, set[str]] | None = None,
 ) -> list[dict]:
     """Кандидаты волны.
 
-    Пакет в плане, если цель не достигнута зелёной сборкой В ОБОИХ проектах.
-    Ключевой случай (был багом): pilot-цель зелёная, stable-цель ещё нет
-    (missing/failed/active) — такой пакет обязан попасть в план, иначе
-    stable-гэпы не закрываются никогда.
-
-    «Достигнута цель» = зелёная сборка ИЛИ версия есть в repodata: build-list
-    COPR неполон (у 133 из 137 опубликованных пакетов нет записи `succeeded`),
-    и без repodata план заново пересобирает уже опубликованное.
-
-    Даунгрейд запрещён в обе стороны: если в проекте уже есть версия новее цели,
-    пакет выпадает из плана независимо от --force (см. stale_targets).
+    «Достигнута цель» = версия опубликована ВО ВСЕХ chroot по repodata
+    (pilot_completed / stable_completed) и НИЧЕГО больше. Прежде здесь стояло
+    `target_reached(target, hist) or repodata_has_target(...)`, то есть ИЛИ с
+    build-list COPR: зелёная запись в build-list засчитывалась как «цель
+    достигнута». Это неверно по двум причинам. Первая — build-list ничего не
+    говорит о том, в каких chroot версия появилась, и общий parent build может
+    быть зелёным при провале одного chroot. Вторая — записи об успешных
+    сборках в COPR неполны и нестабильны во времени (у 133 из 137
+    опубликованных пакетов записи `succeeded` нет вовсе), поэтому история
+    сборок не может быть основанием закрытия цели. Решение о завершении
+    принимает ТОЛЬКО пересечение repodata; build-list используется только для
+    выбора build id для продолжения (active_build), то есть для resume, а не
+    для вердикта.
     """
+
     if max_wave < 1:
         raise WavePlanError("max_wave должен быть >= 1")
     stable_hist = stable_hist or {}
@@ -275,18 +343,20 @@ def build_plan(
         if target_is_stale(pilot_published, name, target) or \
                 target_is_stale(stable_published, name, target):
             continue  # цель устарела — пересборка только испортила бы репозиторий
-        pilot_ok = target_reached(target, phist) or repodata_has_target(
-            pilot_published, name, target)
-        stable_ok = target_reached(target, shist) or repodata_has_target(
-            stable_published, name, target)
+        pilot_ok = repodata_has_target(pilot_completed, name, target)
+        stable_ok = repodata_has_target(stable_completed, name, target)
         if not force and pilot_ok and stable_ok:
             continue  # обе цели зелёные — ничего не делаем
+        active = None if pilot_ok else active_build(phist, target)
         plan.append({
             "name": name,
             "target": target,
             # pilot-сборку продолжаем только если версия совпадает с целью
-            "pilot_build": None if pilot_ok else active_build(phist, target),
+            "pilot_build": active,
             "stable_build": None if stable_ok else active_build(shist, target),
+            # provenance SRPM — ОТДЕЛЬНОЕ поле: для терминального 3/4 active
+            # равен None, но источник опубликованных chroot'ов известен.
+            "pilot_srpm_build": pilot_srpm_build_for(name, target, phist, active),
             "pilot_ok": pilot_ok,
             "stable_ok": stable_ok,
             "mode": "promote-only" if pilot_ok else "full",
@@ -317,6 +387,20 @@ def wait_exact_4_4(build_id: int, chroots: list[str], token: str | None,
     except ApiError as exc:
         print(f"  [API-ERROR] build {build_id}: {exc}", flush=True)
         return 1, {}, f"api error: {exc}"
+
+
+def build_still_active(build_id: int, token: str | None = None) -> bool:
+    """Сборка ещё не терминальна.
+
+    Нужна, чтобы отличить «зеркало/COPPR валит билд» от «мы не дождались».
+    Первое — провал пакета, второе — deferred: COPR ещё считает, и следующая
+    волна продолжит наблюдение по тому же build id, без resubmit.
+    """
+    try:
+        state = fetch_parent_state(int(build_id), API_BASE, token)
+    except Exception:  # noqa: BLE001 — неизвестно => считаем терминальным (fail-closed)
+        return False
+    return str(state or "").lower() in ACTIVE
 
 
 def srpm_base_version(path: str, name: str | None = None) -> str:
@@ -384,17 +468,51 @@ def make_srpm(name: str, target: str, log_dir: Path) -> str:
 
 
 def fetch_pilot_srpm(name: str, target: str, builds: list[dict],
-                     dest_dir: Path) -> tuple[str, str, int]:
-    """Скачать ТОТ ЖЕ SRPM из зелёной pilot-сборки. -> (path, sha256, build_id).
+                     dest_dir: Path, build_id: int | None = None) -> tuple[str, str, int]:
+    """Скачать ТОТ ЖЕ SRPM pilot-сборки. -> (path, sha256, build_id).
 
-    Гарантия «одинаковый SRPM pilot→stable»: promote-only-пакет не пересобирается,
-    а переиспользует артефакт, который уже прошёл exact 4/4 в pilot.
+    Гарантия «одинаковый SRPM»: если часть chroot'ов уже опубликована (3/4) либо
+    план подхватил существующую сборку, свежий make_srpm() дал бы другой артефакт —
+    и в репозитории оказались бы два разных SRPM на один target. Поэтому здесь
+    берётся байт-в-байт тот же SRPM, который уже уходил в pilot.
+
+    build_id — ТОЧНЫЙ id pilot_srpm_build из immutable-плана. Fetch идёт
+    строго по нему: отсутствие сборки, чужая пакет-принадлежность или другая
+    базовая версия — это fail-closed, а не повод искать «любую succeeded
+    сборку той же версии». Такая подмена дала бы в репозитории второй SRPM
+    на один target.
     """
-    found = succeeded_build_url(builds, name, target)
-    if not found:
+    if build_id is None:
         raise WaveError(
-            f"{name}: pilot-цель {target} зелёная, но SRPM пилот-сборки недоступен — "
-            "promote без нарушения byte-идентичности невозможен")
+            f"{name}: provenance SRPM (pilot_srpm_build) не задан для {target} — "
+            "искать succeeded-сборку той же версии запрещено, remediation без "
+            "byte-идентичности невозможна")
+    build_id = int(build_id)
+    found = None
+    for b in builds:
+        if b.get("id") != build_id:
+            continue
+        sp = b.get("source_package") or {}
+        url = sp.get("url")
+        sp_name = sp.get("name")
+        if sp_name and sp_name != name:
+            raise WaveError(
+                f"{name}: сборка {build_id} принадлежит {sp_name}, а не {name} — "
+                "provenance не совпадает, submit заблокирован")
+        if ver_base(sp.get("version") or "") != ver_base(target):
+            raise WaveError(
+                f"{name}: сборка {build_id} несёт версию {sp.get('version')!r}, "
+                f"а цель {target!r} — provenance не совпадает")
+        if not url:
+            raise WaveError(
+                f"{name}: pilot-сборка {build_id} есть, но без SRPM URL — "
+                "точный артефакт недоступен, submit невозможен")
+        found = (build_id, url)
+        break
+    if found is None:
+        raise WaveError(
+            f"{name}: pilot-сборка {build_id} не найдена в истории проекта — "
+            "точный source build недоступен, remediation невозможна")
     build_id, url = found
     dest_dir.mkdir(parents=True, exist_ok=True)
     fname = os.path.basename(url)
@@ -418,11 +536,23 @@ def fetch_pilot_srpm(name: str, target: str, builds: list[dict],
     return str(dest), sha256_file(str(dest)), build_id
 
 
-def submit(project: str, srpm: str, copr_conf: str | None) -> str:
-    """Submit SRPM (copr-cli --nowait). Возвращает числовой build id."""
-    cmd = ["copr-cli", "build", "--nowait", project, srpm]
+def submit(project: str, srpm: str, copr_conf: str | None,
+           chroots: list[str] | None = None) -> str:
+    """Submit SRPM (copr-cli --nowait). Возвращает числовой build id.
+
+    ``chroots`` ограничивает сборку перечисленными chroot'ами (-r). Это
+    обязательно для повторной попытки: если 3 из 4 chroot уже опубликованы,
+    повторный submit во все четыре пересобирает и заново публикует успешные —
+    и, главное, роняет уже зелёные chroot тем же самым зеркальным багом,
+    который их уже валил. Пересобирать можно только то, что не опубликовано.
+    """
+    cmd = ["copr-cli"]
     if copr_conf:
-        cmd = ["copr-cli", "--config", copr_conf, "build", "--nowait", project, srpm]
+        cmd += ["--config", copr_conf]
+    cmd += ["build", "--nowait", project, srpm]
+    if chroots:
+        for chroot in chroots:
+            cmd += ["-r", chroot]
     env = dict(os.environ)
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
     text = r.stdout or ""
@@ -433,6 +563,91 @@ def submit(project: str, srpm: str, copr_conf: str | None) -> str:
         raise WaveError(
             f"ожидался ровно 1 build id (submit {project}), получено {ids}: {text[:300]}")
     return str(ids[0])
+
+
+def missing_chroots(project: str, chroots: list[str], name: str, target: str,
+                    per_chroot: dict | None = None) -> list[str]:
+    """Chroot'ы, где target-версия ещё НЕ опубликована.
+
+    Если per_chroot не передан, читаем repodata сами — так process_package
+    остаётся корректным и без предварительного probe (и в тестах, и при
+    ручном запуске на одном пакете).
+    """
+    per = per_chroot if per_chroot is not None else probe_all(project, chroots)["per_chroot"]
+    present = chroot_presence(per, name, target)
+    return [c for c in chroots if c not in present]
+
+
+def verify_published(project: str, chroots: list[str], name: str, target: str,
+                     propagate_min: float = 0.0,
+                     interval: float = 60.0) -> tuple[bool, dict]:
+    """Опубликована ли target-версия ВО ВСЕХ chroot — единственный вердикт.
+
+    COPR помечает сборку succeeded раньше, чем новая repodata разъезжается
+    по CDN, и мгновенная проверка дала бы ложный «не опубликовано» на только
+    что зелёной сборке, поэтому при ``propagate_min`` чтение повторяется.
+    """
+    deadline = time.monotonic() + max(0.0, propagate_min) * 60.0
+    while True:
+        per = probe_all(project, chroots)["per_chroot"]
+        if is_complete(per, name, target):
+            return True, per
+        if time.monotonic() >= deadline:
+            return False, per
+        print(f"  [repodata] {name} {target}: ждём разъезд CDN "
+              f"({len(chroot_presence(per, name, target))}/{len(chroots)})", flush=True)
+        time.sleep(interval)
+
+
+def await_stage(project: str, chroots: list[str], name: str, target: str,
+                bid: str, stage: str, token: str | None, deadline: float,
+                propagate_cap: float, interval: float, wait_chroots: list[str],
+                out: dict) -> tuple[str, dict]:
+    """Дождаться сборки и вынести вердикт ТОЛЬКО по пересечению repodata.
+
+    Возвращает ('complete' | 'deferred' | 'failed', per_chroot).
+
+    Раньше вердикт давал rc из wait_for_build, то есть зелёный parent build,
+    а aggregated repodata после сборки не перечитывалось вовсе. Для сборки,
+    поданной с -r на один chroot, такой вердикт заведомо неверен: одна
+    зелёная сборка одного chroot никогда не бывает «4/4», хотя repodata уже
+    показывает полную публикацию — остальные три chroot закрыла предыдущая
+    волна. Поэтому rc теперь только диагностика, а решение принимает
+    пересечение repodata по всем chroot проекта.
+    """
+    # Бюджет ОДИН на весь пакет: pilot и stable делят его, иначе два stage по
+    # timeout_min давали бы суммарно вдвое против job-таймаута и job убивался
+    # бы GitHub'ом посреди наблюдения — тогда deferred не успел бы записаться.
+    remain_min = max(0.0, (deadline - time.monotonic()) / 60.0)
+    rc, seen, verdict = wait_exact_4_4(int(bid), wait_chroots, token, remain_min, interval)
+    out[f"{stage}_rc"] = rc
+    out[f"{stage}_verdict"] = verdict
+    out[f"{stage}_chroots"] = {c: seen.get(c, "missing") for c in wait_chroots}
+
+    # Ожидание разъезда CDN тоже живёт в пределах того же бюджета.
+    propagate_min = min(propagate_cap, max(0.0, (deadline - time.monotonic()) / 60.0))
+    complete, per = verify_published(project, chroots, name, target, propagate_min, interval)
+    published = sorted(chroot_presence(per, name, target))
+    absent = [c for c in chroots if c not in published]
+    out[f"{stage}_published_chroots"] = published
+    out[f"{stage}_still_missing"] = absent
+    if complete:
+        return "complete", per
+    if build_still_active(int(bid), token):
+        # COPR ещё считает: это НЕ провал пакета и НЕ успех. Исход deferred —
+        # следующая волна продолжит наблюдение по этому же build id; resubmit
+        # не делается (build_plan подхватит активную сборку через active_build).
+        out["outcome"] = "deferred"
+        out["deferred_stage"] = stage
+        out["error"] = (f"{name}: {project} build {bid} ещё активен ({verdict}); "
+                        f"опубликовано {len(published)}/{len(chroots)} — deferred, "
+                        f"не resubmit")
+        return "deferred", per
+    out["outcome"] = f"{stage}-not-clean"
+    out["error"] = (f"{name}: {project} build {bid} терминален ({verdict}), но "
+                    f"опубликовано только {len(published)}/{len(chroots)} — нет: "
+                    f"{', '.join(absent) if absent else '?'}")
+    return "failed", per
 
 
 def process_package(
@@ -446,15 +661,23 @@ def process_package(
     pilot_builds: list[dict],
     pilot_published: dict[str, set[str]] | None = None,
     stable_published: dict[str, set[str]] | None = None,
+    pilot_per_chroot: dict | None = None,
+    stable_per_chroot: dict | None = None,
+    propagate_min: float = 0.0,
 ) -> dict:
     name = pkg["name"]
     target = pkg["target"]
     out = dict(pkg)
     out.setdefault("mode", "full")
+    # Один бюджет на весь пакет (см. await_stage): суммарное наблюдение плюс
+    # ожидание CDN никогда не превысит timeout_min, а значит job-таймаут всегда
+    # оставляет запас на запись отчёта, deferred-вердикт и upload артефактов.
+    deadline = time.monotonic() + timeout_min * 60.0
 
     # Страховка от TOCTOU: план мог быть построен до того, как в репозитории
     # появилась более новая версия. Промоутить старую нельзя ни при каком
-    # --force, поэтому исход — провал волны, а не 'promoted'.
+    # --force, поэтому исход — провал волны, а не 'promoted'. Union-таблица
+    # здесь уместна: «есть ли где-то новее» — это ровно вопрос про любой chroot.
     for project, table in ((PILOT, pilot_published), (STABLE, stable_published)):
         if target_is_stale(table, name, target):
             out["outcome"] = "downgrade-blocked"
@@ -462,12 +685,34 @@ def process_package(
                             "— сборка/промоут отменены (обновите state.json)")
             return out
 
-    # --- SRPM: либо переиспользуем артефакт зелёной pilot-сборки, либо собираем
-    #     ровно под target из плана. Оба пути проверяют версию ДО submit.
-    if pkg.get("mode") == "promote-only":
+    # Provenance — отдельное поле immutable-плана, а не pilot_build: для
+    # терминального 3/4 active-сборки нет, но источник опубликованных chroot'ов
+    # известен точным id.
+    out["pilot_srpm_build"] = pkg.get("pilot_srpm_build")
+
+    # --- PILOT scope: сначала узнаём, чего именно не хватает. От этого зависит
+    #     и выбор SRPM, и то, куда вообще можно submit.
+    if out["mode"] == "promote-only":
+        pilot_missing: list[str] = []
+    else:
+        pilot_missing = missing_chroots(PILOT, chroots, name, target, pilot_per_chroot)
+    out["pilot_missing_chroots"] = pilot_missing
+
+    # Частичная публикация (3/4) и подхваченная планом сборка (resume) означают,
+    # что target УЖЕ уходил в pilot. make_srpm() в этих случаях запрещён:
+    # он собрал бы другой артефакт, и репозиторий получил бы два разных SRPM
+    # на одну и ту же версию — нарушение exact-SRPM.
+    resumed = pkg.get("pilot_build") is not None
+    already_in_pilot = len(pilot_missing) < len(chroots)
+    reuse_exact_srpm = resumed or already_in_pilot
+
+    # --- SRPM: точный артефакт pilot-сборки либо свежая сборка только когда
+    #     target в pilot ещё не появлялся. Версия проверяется ДО submit.
+    if reuse_exact_srpm:
         try:
             srpm, sha, src_build = fetch_pilot_srpm(
-                name, target, pilot_builds, log_dir.parent / "SRPMS")
+                name, target, pilot_builds, log_dir.parent / "SRPMS",
+                build_id=pkg.get("pilot_srpm_build"))
         except WaveError as exc:
             out["outcome"] = "not-attempted"
             out["error"] = str(exc)
@@ -486,49 +731,76 @@ def process_package(
     out["srpm"] = os.path.basename(srpm)
     out["srpm_sha256"] = sha
 
-    # --- PILOT stage (пропускается, если pilot-цель уже зелёная) ---
-    pilot_bid = pkg.get("pilot_build")
-    if out["mode"] != "promote-only":
+    # --- PILOT stage: пересобираем ТОЛЬКО то, что не опубликовано ---
+    if out["mode"] == "promote-only":
+        out["pilot_ok"] = True
+    elif not pilot_missing:
+        # 4/4 в repodata: сборка этого target уже была и закрыта.
+        out["pilot_ok"] = True
+    else:
+        pilot_bid = pkg.get("pilot_build")
         if pilot_bid is None:
             try:
-                pilot_bid = submit(PILOT, srpm, copr_conf)
+                pilot_bid = submit(PILOT, srpm, copr_conf, chroots=pilot_missing)
                 out["pilot_submitted"] = True
+                out["pilot_submit_chroots"] = pilot_missing
+                wait_chroots = pilot_missing
             except WaveError as exc:
                 out["outcome"] = "pilot-submit-failure"
                 out["error"] = str(exc)
                 return out
         else:
+            # Продолжаем наблюдение за существующей сборкой: она создана
+            # на весь проект, ждём её по всем chroot, resubmit не делаем.
             out["pilot_resumed"] = True
+            wait_chroots = chroots
         out["pilot_build"] = pilot_bid
-        rc, seen, verdict = wait_exact_4_4(int(pilot_bid), chroots, token, timeout_min, 30.0)
-        out["pilot_rc"] = rc
-        out["pilot_verdict"] = verdict
-        out["pilot_chroots"] = {c: seen.get(c, "missing") for c in chroots}
-        if rc != 0:
-            out["outcome"] = "pilot-not-clean"   # не продвигаем в stable ни при каких
+        status, pilot_per_chroot = await_stage(
+            PILOT, chroots, name, target, str(pilot_bid), "pilot", token,
+            deadline, propagate_min, 30.0, wait_chroots, out)
+        if status != "complete":
             return out
-    else:
         out["pilot_ok"] = True
 
-    # --- STABLE stage (тот же SRPM) ---
+    # --- STABLE stage (тот же SRPM, тоже только недостающие chroot) ---
+    stable_missing = missing_chroots(STABLE, chroots, name, target, stable_per_chroot)
+    out["stable_missing_chroots"] = stable_missing
+    if not stable_missing:
+        # 4/4 в stable repodata — promote уже состоялся в прошлой волне.
+        out["stable_ok"] = True
+        out["outcome"] = "promoted"
+        return out
     stable_bid = pkg.get("stable_build")
     if stable_bid is None:
         try:
-            stable_bid = submit(STABLE, srpm, copr_conf)
+            stable_bid = submit(STABLE, srpm, copr_conf, chroots=stable_missing)
             out["stable_submitted"] = True
+            out["stable_submit_chroots"] = stable_missing
+            wait_chroots = stable_missing
         except WaveError as exc:
             out["outcome"] = "stable-submit-failure"
             out["error"] = str(exc)
             return out
     else:
         out["stable_resumed"] = True
+        wait_chroots = chroots
     out["stable_build"] = stable_bid
-    rc2, seen2, verdict2 = wait_exact_4_4(int(stable_bid), chroots, token, timeout_min, 30.0)
-    out["stable_rc"] = rc2
-    out["stable_verdict"] = verdict2
-    out["stable_chroots"] = {c: seen2.get(c, "missing") for c in chroots}
-    out["outcome"] = "promoted" if rc2 == 0 else "stable-not-clean"
+    status2, _ = await_stage(
+        STABLE, chroots, name, target, str(stable_bid), "stable", token,
+        deadline, propagate_min, 30.0, wait_chroots, out)
+    if status2 == "complete":
+        out["stable_ok"] = True
+        out["outcome"] = "promoted"
     return out
+
+
+def deferred_items(items: list[dict]) -> list[dict]:
+    """Пакеты, которые не провалились, а просто не дождались терминала COPR.
+
+    Их нельзя считать успехом (см. SUCCESS_OUTCOMES), но и нельзя чинить
+    перезапуском: следующая волна продолжит наблюдение по тем же build id.
+    """
+    return [e for e in items if e.get("outcome") == "deferred"]
 
 
 def failed_items(items: list[dict]) -> list[dict]:
@@ -588,22 +860,41 @@ def cmd_plan(args) -> int:
     stable_owner, stable_name = api_project(STABLE)
     stable_hist = history(fetch_builds(stable_owner, stable_name, args.token or None))
     try:
-        pilot_pub = probe_published(PILOT, chroots)
-        stable_pub = probe_published(STABLE, chroots)
+        pilot_probe = probe_all(PILOT, chroots)
+        stable_probe = probe_all(STABLE, chroots)
+        pilot_pub = pilot_probe["union"]
+        stable_pub = stable_probe["union"]
+        pilot_done = pilot_probe["completed"]
+        stable_done = stable_probe["completed"]
     except WavePlanError as exc:
         print(f"PUBLISH-PROBE-FAILED: {exc}", file=sys.stderr)
         return 1
     plan = build_plan(pkgs["packages"], versions, pilot_hist, args.max_wave,
-                      args.force, stable_hist, pilot_pub, stable_pub)
+                      args.force, stable_hist, pilot_pub, stable_pub,
+                      pilot_done, stable_done)
     for item in stale_targets(pkgs["packages"], versions, pilot_pub, stable_pub):
         print(f"  STALE {item['name']}@{item['target']}: в {item['project']} уже "
               f"новая версия, цель из state.json устарела — промоутить нельзя")
     for p in plan:
         print(f"  {p['name']}@{p['target']} mode={p['mode']} "
               f"pilot_build={p['pilot_build'] or '(new)'} "
-              f"stable_build={p['stable_build'] or '(new)'}")
+              f"stable_build={p['stable_build'] or '(new)'} "
+              f"pilot_srpm_build={p['pilot_srpm_build'] or '(none)'}")
     print(f"plan_size={len(plan)} pilot={PILOT} stable={STABLE}")
     print(f"published_probe=ok pilot_names={len(pilot_pub)} stable_names={len(stable_pub)}")
+    if getattr(args, "json_out", None):
+        # Матрица в CI строится по этому файлу: пакеты должны быть независимы.
+        Path(args.json_out).write_text(json.dumps(
+            {"packages": [{"name": p["name"], "target": p["target"],
+                           "mode": p["mode"], "pilot_build": p["pilot_build"],
+                           "stable_build": p["stable_build"],
+                           # без этого поля immutable-план не может отдать
+                           # точный source build fetch'у
+                           "pilot_srpm_build": p["pilot_srpm_build"]} for p in plan],
+             "plan_size": len(plan),
+             "stale_targets": stale_targets(pkgs["packages"], versions,
+                                            pilot_pub, stable_pub)},
+            ensure_ascii=False, indent=2))
     return 0
 
 
@@ -632,31 +923,91 @@ def cmd_run(args) -> int:
     stable_owner, stable_name = api_project(STABLE)
     stable_hist = history(fetch_builds(stable_owner, stable_name, token))
 
-    # Реподата читается ДО плана: без неё неизвестно, что уже опубликовано,
-    # а волна без плана не должна ни собирать, ни промоутить ничего.
+    # Реподата читается ОДНИМ проходом на проект: union (анти-даунгрейд),
+    # per-chroot (какие chroot не дособраны) и intersection (цель достигнута
+    # только при 4/4). Три таблицы из одного чтения — иначе они могут
+    # описывать разные моменты времени.
     try:
-        pilot_pub = probe_published(PILOT, chroots)
-        stable_pub = probe_published(STABLE, chroots)
+        pilot_probe = probe_all(PILOT, chroots)
+        stable_probe = probe_all(STABLE, chroots)
     except WavePlanError as exc:
         print(f"PUBLISH-PROBE-FAILED: {exc}", file=sys.stderr)
         return 1
+    pilot_pub = pilot_probe["union"]
+    stable_pub = stable_probe["union"]
+    pilot_done = pilot_probe["completed"]
+    stable_done = stable_probe["completed"]
 
-    plan = build_plan(pkgs, versions, pilot_hist, args.max_wave, args.force,
-                      stable_hist, pilot_pub, stable_pub)
+    # P0: план из матрицы — иммутабельный. Package-job получает ровно ту
+    # запись, которую plan-job собрал и отдал в matrix. Раньше каждый job
+    # заново строил план из ЖИВОГО state.json и живой repodata, то есть план
+    # мог уехать между jobs (кто-то успел смерджить, реподата разъехалась),
+    # и job делал не то, что было решено. Здесь план не пересобирается вовсе.
+    plan_entry = getattr(args, "plan_entry", None)
+    only = getattr(args, "only", None)
+    if plan_entry:
+        try:
+            entry = json.loads(plan_entry)
+        except json.JSONDecodeError as exc:
+            print(f"PLAN-ENTRY-INVALID: {exc}", file=sys.stderr)
+            return 1
+        absent = [k for k in ("name", "target") if not entry.get(k)]
+        if absent:
+            print(f"PLAN-ENTRY-INVALID: нет полей {absent}", file=sys.stderr)
+            return 1
+        entry.setdefault("mode", "full")
+        plan = [entry]
+        print(f"immutable plan-entry: {entry['name']}@{entry['target']} "
+              f"(mode={entry['mode']})")
+    else:
+        plan = build_plan(pkgs, versions, pilot_hist, args.max_wave, args.force,
+                          stable_hist, pilot_pub, stable_pub, pilot_done, stable_done)
+        # Per-package запуск (matrix в CI): ограничиваем план одним именем.
+        # Если пакета в плане нет — он либо уже зелёный в обоих проектах, либо
+        # не приоритизируется. Это НЕ ошибка: job должен завершиться успешно,
+        # иначе matrix из-за чужого пакета уедет в failed.
+        if only:
+            plan = [e for e in plan if e["name"] == only]
+            print(f"--only {only}: в плане {len(plan)} пакет(ов)")
 
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
+    report_path = Path(args.report_path) if getattr(args, "report_path", None) \
+        else log_dir / "wave-report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def write_report(wave: dict) -> None:
+        report_path.write_text(json.dumps(wave, ensure_ascii=False, indent=2))
+
     wave = {"fetched_at": int(time.time()), "items": [], "counts": {}, "errors": [],
+            "scope": {"only": only or (plan[0]["name"] if plan_entry else None),
+                      "max_wave": args.max_wave, "force": args.force,
+                      "plan_entry": bool(plan_entry)},
             "published_probe": {"pilot": {k: sorted(v) for k, v in sorted(pilot_pub.items())},
                                 "stable": {k: sorted(v) for k, v in sorted(stable_pub.items())}},
+            "completed_probe": {"pilot": {k: sorted(v) for k, v in sorted(pilot_done.items())},
+                                "stable": {k: sorted(v) for k, v in sorted(stable_done.items())}},
             "stale_targets": stale_targets(pkgs, versions, pilot_pub, stable_pub)}
     if wave["stale_targets"]:
         print(f"STALE targets skipped: {[i['name'] for i in wave['stale_targets']]}",
               file=sys.stderr)
     if not plan:
-        print("nothing to do (волна пуста)")
-        (log_dir / "wave-report.json").write_text(
-            json.dumps(wave, ensure_ascii=False, indent=2))
+        if plan_entry:
+            # Матрица обещала работу, а плана нет: это баг plan-job, а не
+            # «всё хорошо». Молчаливый success здесь означал бы, что пакет
+            # молча выпал из публикации.
+            print(f"PLAN-ENTRY-MISSING: {plan_entry[:120]}", file=sys.stderr)
+            write_report(wave)
+            return 1
+        if only:
+            # Не в волне — отчёт всё равно пишем, чтобы reconcile видел факт.
+            wave["items"] = [{"name": only, "outcome": "not-in-wave",
+                              "error": f"{only}: не требует публикации "
+                                       "(цель достигнута или пакет не приоритизируется)"}]
+            wave["counts"] = summarize(wave["items"])
+        else:
+            print("nothing to do (волна пуста)")
+        write_report(wave)
         return 0
 
     print(f"wave: {len(plan)} package(s): {[p['name'] for p in plan]}")
@@ -665,7 +1016,10 @@ def cmd_run(args) -> int:
         try:
             res = process_package(entry, chroots, token, copr_conf, log_dir,
                                   args.timeout_min, stable_hist, pilot_builds,
-                                  pilot_pub, stable_pub)
+                                  pilot_pub, stable_pub,
+                                  pilot_probe["per_chroot"],
+                                  stable_probe["per_chroot"],
+                                  propagate_min=getattr(args, "propagate_min", 10.0))
         except WaveError as exc:
             res = dict(entry)
             res["outcome"] = "pipeline-error"
@@ -673,10 +1027,15 @@ def cmd_run(args) -> int:
             print(f"  [ERROR] {exc}", flush=True)
         wave["items"].append(res)
         print(f"  outcome={res['outcome']}", flush=True)
+        # Отчёт перезаписывается после каждого пакета: если job убьёт timeout,
+        # уже завершённые пакеты не потеряются.
+        wave["counts"] = summarize(wave["items"])
+        write_report(wave)
 
     wave["counts"] = summarize(wave["items"])
     wave["errors"] = collect_errors(wave["items"])
-    (log_dir / "wave-report.json").write_text(json.dumps(wave, ensure_ascii=False, indent=2))
+    wave["deferred"] = [e["name"] for e in deferred_items(wave["items"])]
+    write_report(wave)
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as fh:
@@ -685,7 +1044,13 @@ def cmd_run(args) -> int:
 
     bad = failed_items(wave["items"])
     if bad:
-        print(f"NOT-ALL-CLEAN: {[e['name'] for e in bad]}", file=sys.stderr)
+        deferred = {e["name"] for e in deferred_items(wave["items"])}
+        hard = [e["name"] for e in bad if e["name"] not in deferred]
+        if deferred:
+            print(f"DEFERRED (ждали COPR дольше job, resubmit не делаем): "
+                  f"{sorted(deferred)}", file=sys.stderr)
+        print(f"NOT-ALL-CLEAN: {[e['name'] for e in bad]}"
+              + (f" (жёсткие провалы: {hard})" if hard else ""), file=sys.stderr)
         return 1
     return 0
 
@@ -698,6 +1063,17 @@ def parse_args(argv=None):
     ap.add_argument("--token", default=None)
     ap.add_argument("--copr-config", default=os.environ.get("COPR_CONFIG_PATH", ""))
     ap.add_argument("--timeout-min", type=float, default=180.0)
+    ap.add_argument("--only", default=os.environ.get("WAVE_ONLY") or None,
+                    help="ограничить волну одним пакетом (matrix в CI)")
+    ap.add_argument("--report-path", default=os.environ.get("WAVE_REPORT_PATH") or None,
+                    help="куда писать wave-report.json (для per-package job)")
+    ap.add_argument("--json-out", default=os.environ.get("WAVE_PLAN_JSON") or None,
+                    help="plan: записать план в JSON (вход для matrix)")
+    ap.add_argument("--plan-entry", default=os.environ.get("WAVE_PLAN_ENTRY") or None,
+                    help="run: исполнить ровно эту запись плана (JSON из matrix), "
+                         "не пересобирая план из живого state")
+    ap.add_argument("--propagate-min", type=float, default=10.0,
+                    help="сколько ждать разъезда repodata после зелёной сборки")
     sub = ap.add_subparsers(dest="command", required=True)
     sub.add_parser("plan", help="preview the wave (no submit)")
     sub.add_parser("run", help="execute the wave")
@@ -707,7 +1083,9 @@ def parse_args(argv=None):
 def canonicalize(argv):
     """Флаги можно писать как до, так и после субкоманды
     (`plan --max-wave 5` и `--max-wave 5 plan` — одно и то же)."""
-    opts = ("--max-wave", "--force", "--confirm", "--token", "--copr-config", "--timeout-min")
+    opts = ("--max-wave", "--force", "--confirm", "--token", "--copr-config",
+            "--timeout-min", "--only", "--report-path", "--json-out",
+            "--plan-entry", "--propagate-min")
     head, tail = [], []
     i = 0
     while i < len(argv):

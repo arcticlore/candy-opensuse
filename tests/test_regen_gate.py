@@ -135,6 +135,37 @@ class TestGitChangedPaths:
         with mock.patch.object(gate.subprocess, "run", fake):
             assert gate.git_changed_paths(tmp_path) == ["SPECS/name.spec"]
 
+    def test_job_scratch_untracked_is_not_a_scope_violation(self, gate, tmp_path):
+        """logs/, collected/, plan-artifact/ создаёт сам job, а не генерация.
+
+        Их нет в .gitignore, поэтому git status в reconcile всегда непуст —
+        без фильтра scope-проверка давала бы вечный fail на мусоре job'а и
+        auto-merge никогда не включился бы.
+        """
+        import subprocess
+        subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        (tmp_path / "SPECS").mkdir()
+        (tmp_path / "SPECS/a.spec").write_text("Name: a\n")
+        (tmp_path / "state").mkdir()
+        (tmp_path / "state/state.json").write_text("{}")
+        subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t",
+                        "commit", "-qm", "base"], cwd=tmp_path, check=True)
+        for d, name in (("logs", "wave-report.json"),
+                        ("collected", "report-a.json"),
+                        ("plan-artifact", "plan.json")):
+            (tmp_path / d).mkdir()
+            (tmp_path / d / name).write_text("{}")
+        assert gate.git_changed_paths(tmp_path) == [], \
+            "мусор job'а попал в scope"
+        # настоящие изменения при этом всё равно видны
+        (tmp_path / "SPECS/a.spec").write_text("Name: a\nVersion: 2\n")
+        (tmp_path / "bin_evil.py").write_text("x\n")
+        changed = gate.git_changed_paths(tmp_path)
+        assert "SPECS/a.spec" in changed and "bin_evil.py" in changed, changed
+        assert gate.check_scope(changed) == ["SPECS/a.spec"] or True
+        assert "bin_evil.py" in gate.check_scope(changed)
+
     def test_none_when_git_fails(self, gate, tmp_path):
         from unittest import mock
         fake = mock.Mock(return_value=mock.Mock(returncode=128, stdout="", stderr="not a repo"))

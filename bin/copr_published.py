@@ -125,6 +125,66 @@ def parse_primary(blob: bytes) -> dict[str, set[str]]:
     return table
 
 
+def fetch_published_per_chroot(project: str, chroots: Iterable[str],
+                               owner: str = "arcticlore",
+                               dl_base: str = DEFAULT_DL_BASE,
+                               timeout: int = 60) -> dict[str, dict[str, set[str]]]:
+    """Таблицы опубликованных пакетов ПО КАЖДОМУ chroot: {chroot: {name: versions}}.
+
+    Именно per-chroot, потому что aggregated-таблица не позволяет ответить на
+    вопрос «какой именно chroot не дособран» — а без этого нельзя resubmit'ить
+    только недостающие chroot'ы, не пересобирая успешные.
+    """
+    out: dict[str, dict[str, set[str]]] = {}
+    for chroot in chroots:
+        root = DL_TMPL.format(dl=dl_base.rstrip("/"), owner=owner, project=project,
+                             chroot=chroot)
+        href = _primary_href(root, timeout)
+        blob = _fetch(f"{root}{href}", timeout, binary=True)
+        out[chroot] = parse_primary(blob)
+    return out
+
+
+def completed_table(per_chroot: dict[str, dict[str, set[str]]]) -> dict[str, set[str]]:
+    """Версии, опубликованные ВО ВСЕХ chroot сразу (пересечение).
+
+    fetch_published() объединяет версии по union — это нужно анти-даунгрейду
+    («есть ли где-то новее цели»), но как признак «цель достигнута» union
+    опасен: версия, попавшая в ОДИН chroot из четырёх, выглядит как
+    опубликованная везде, и волна посчитает 3/4 за 4/4.
+    """
+    if not per_chroot:
+        return {}
+    tables = list(per_chroot.values())
+    names = set(tables[0])
+    for table in tables[1:]:
+        names &= set(table)
+    out: dict[str, set[str]] = {}
+    for name in names:
+        shared = set(tables[0].get(name, set()))
+        for table in tables[1:]:
+            shared &= table.get(name, set())
+        shared.discard("")
+        if shared:
+            out[name] = shared
+    return out
+
+
+def chroot_presence(per_chroot: dict[str, dict[str, set[str]]],
+                    name: str, target: str) -> set[str]:
+    """Chroot'ы, где target-версия пакета УЖЕ опубликована."""
+    return {chroot for chroot, table in per_chroot.items()
+            if target in (table.get(name) or set())}
+
+
+def is_complete(per_chroot: dict[str, dict[str, set[str]]],
+                name: str, target: str) -> bool:
+    """Опубликована ли версия ВО ВСЕХ переданных chroot (и chroot'ы не пусты)."""
+    if not per_chroot:
+        return False
+    return len(chroot_presence(per_chroot, name, target)) == len(per_chroot)
+
+
 def fetch_published(project: str, chroots: Iterable[str], owner: str = "arcticlore",
                     dl_base: str = DEFAULT_DL_BASE, timeout: int = 60) -> dict[str, set[str]]:
     """Объединённая по chroot таблица опубликованных пакетов проекта."""

@@ -30,6 +30,13 @@ from pathlib import Path
 ALLOWED_PREFIXES = ("SPECS/",)
 ALLOWED_EXACT = ("state/state.json", "pkgs.json")
 
+# Untracked-каталоги, которые создаёт сам job (artifacts, логи волны) и которых
+# нет в .gitignore. Это НЕ изменения репозитория: коммит берёт только
+# state/state.json, SPECS/ и pkgs.json, поэтому мусор рабочего каталога не может
+# попасть в него. Без этого списка git status в reconcile всегда непуст, и
+# scope-проверка выдавала бы вечный fail на чужом мусоре.
+SCRATCH_PREFIXES = ("logs/", "collected/", "plan-artifact/")
+
 
 def enabled_names(pkgs_path: str | Path) -> set[str]:
     data = json.loads(Path(pkgs_path).read_text())
@@ -97,8 +104,12 @@ def git_changed_paths(root: str | Path) -> list[str] | None:
         # рено/копи: "R  old -> new" — интересует новый путь
         parts = payload.split(" -> ")
         path = parts[-1].strip().strip('"')
-        if path:
-            out.append(path)
+        if not path:
+            continue
+        # untracked-мусор job'а не считаем изменением репозитория
+        if line[:2] == "??" and path.startswith(SCRATCH_PREFIXES):
+            continue
+        out.append(path)
     return out
 
 
