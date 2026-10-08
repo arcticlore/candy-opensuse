@@ -101,6 +101,88 @@ class WavePlanError(WaveError):
     pass
 
 
+class RecoveryAllowlistError(WaveError):
+    """Recovery-режим включён без валидного allowlist — fail-closed."""
+
+
+def load_retry_brake():
+    """Подгрузить bin/retry_brake.py по пути (модуль с подчёркиванием)."""
+    import importlib.util
+    bin_dir = Path(__file__).resolve().parent
+    spec = importlib.util.spec_from_file_location(
+        "retry_brake", bin_dir / "retry_brake.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def parse_allowlist(value, pkgs: list[dict], recovery: bool) -> list[str] | None:
+    """Разобрать recovery-allowlist. Fail-closed при пустом/битом вводе.
+
+    Значение — либо путь к файлу (по строке на имя), либо CSV-список имён.
+    Возвращает отсортированный дедуплицированный список имён из pkgs.json
+    либо None, если recovery/allowlist не заданы.
+    """
+    if not value:
+        if recovery:
+            raise RecoveryAllowlistError(
+                "recovery-режим включён, но allowlist пуст — волна запрещена")
+        return None
+    raw = str(value).strip()
+    candidates = []
+    p = Path(raw)
+    if os.path.exists(raw) and p.is_file():
+        text = p.read_text(encoding="utf-8")
+        candidates = [ln.split("#", 1)[0].strip() for ln in text.splitlines()]
+    else:
+        candidates = [c.strip() for c in raw.split(",")]
+    names = sorted({c for c in candidates if c})
+    if not names:
+        raise RecoveryAllowlistError(
+            "recovery-allowlist не содержит имён — волна запрещена")
+    known = {pkg["name"] for pkg in pkgs}
+    unknown = [n for n in names if n not in known]
+    if unknown:
+        raise RecoveryAllowlistError(
+            f"recovery-allowlist ссылается на неизвестные пакеты: {unknown}")
+    return names
+
+
+def apply_allowlist(pkgs: list[dict], names: list[str] | None) -> list[dict]:
+    """Отфильтровать пакеты ДО построения плана (план не перерастёт allowlist)."""
+    if names is None:
+        return pkgs
+    allowed = set(names)
+    return [pkg for pkg in pkgs if pkg["name"] in allowed]
+
+
+def assert_plan_within_allowlist(plan: list[dict], names: list[str] | None) -> None:
+    """Инвариант: ни одна запись плана не выходит за allowlist."""
+    if names is None:
+        return
+    allowed = set(names)
+    outside = sorted({p["name"] for p in plan if p["name"] not in allowed})
+    if outside:
+        raise RecoveryAllowlistError(
+            f"план вышел за recovery-allowlist: {outside}")
+
+
+def preflight_gate(preflight_path) -> tuple[bool, str]:
+    """Прочитать preflight-evidence. Нет файла / ok!=true => submit запрещён."""
+    if not preflight_path:
+        return True, "preflight не задан (обычная волна)"
+    p = Path(preflight_path)
+    if not p.exists():
+        return False, f"preflight-evidence отсутствует: {preflight_path}"
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        return False, f"preflight-evidence битый JSON: {exc}"
+    if not data.get("ok"):
+        return False, "preflight красный: " + "; ".join(data.get("reasons", [])[:3])
+    return True, "preflight зелёный"
+
+
 def api_project(project: str) -> tuple[str, str]:
     if "/" in project:
         return project.split("/", 1)
@@ -855,6 +937,11 @@ def cmd_plan(args) -> int:
     pkgs = json.loads(Path("pkgs.json").read_text())
     versions = load_state_versions()
     chroots = list(pkgs["project"]["chroots"])
+    allow_names = parse_allowlist(getattr(args, "recovery_allowlist", None),
+                                  pkgs["packages"], getattr(args, "recovery", False))
+    enabled = apply_allowlist(pkgs["packages"], allow_names)
+    if allow_names is not None:
+        print(f"recovery-allowlist: {allow_names} ({len(enabled)} пакет(ов))")
     owner, pname = api_project(PILOT)
     pilot_hist = history(fetch_builds(owner, pname, args.token or None))
     stable_owner, stable_name = api_project(STABLE)
@@ -869,10 +956,11 @@ def cmd_plan(args) -> int:
     except WavePlanError as exc:
         print(f"PUBLISH-PROBE-FAILED: {exc}", file=sys.stderr)
         return 1
-    plan = build_plan(pkgs["packages"], versions, pilot_hist, args.max_wave,
+    plan = build_plan(enabled, versions, pilot_hist, args.max_wave,
                       args.force, stable_hist, pilot_pub, stable_pub,
                       pilot_done, stable_done)
-    for item in stale_targets(pkgs["packages"], versions, pilot_pub, stable_pub):
+    assert_plan_within_allowlist(plan, allow_names)
+    for item in stale_targets(enabled, versions, pilot_pub, stable_pub):
         print(f"  STALE {item['name']}@{item['target']}: в {item['project']} уже "
               f"новая версия, цель из state.json устарела — промоутить нельзя")
     for p in plan:
@@ -892,7 +980,8 @@ def cmd_plan(args) -> int:
                            # точный source build fetch'у
                            "pilot_srpm_build": p["pilot_srpm_build"]} for p in plan],
              "plan_size": len(plan),
-             "stale_targets": stale_targets(pkgs["packages"], versions,
+             "allowlist": allow_names,
+             "stale_targets": stale_targets(enabled, versions,
                                             pilot_pub, stable_pub)},
             ensure_ascii=False, indent=2))
     return 0
@@ -912,6 +1001,9 @@ def load_enabled_pkgs() -> list[dict]:
 
 def cmd_run(args) -> int:
     pkgs = load_enabled_pkgs()
+    allow_names = parse_allowlist(getattr(args, "recovery_allowlist", None),
+                                  pkgs, getattr(args, "recovery", False))
+    pkgs = apply_allowlist(pkgs, allow_names)
     versions = load_state_versions()
     chroots = list(json.loads(Path("pkgs.json").read_text())["project"]["chroots"])
     token = args.token or os.environ.get("COPR_API_TOKEN", "")
@@ -1010,8 +1102,51 @@ def cmd_run(args) -> int:
         write_report(wave)
         return 0
 
+    assert_plan_within_allowlist(plan, allow_names)
+
+    pf_ok, pf_reason = preflight_gate(getattr(args, "preflight_json", None))
+    if not pf_ok:
+        print(f"PREFLIGHT-BLOCKED: {pf_reason}", file=sys.stderr)
+        wave["items"] = [{"name": e["name"], "target": e["target"],
+                          "outcome": "preflight-blocked", "error": pf_reason}
+                         for e in plan]
+        wave["counts"] = summarize(wave["items"])
+        wave["errors"] = collect_errors(wave["items"])
+        write_report(wave)
+        return 1
+
+    brake_mod = None
+    brake = None
+    if getattr(args, "brake_file", None):
+        brake_mod = load_retry_brake()
+        brake = brake_mod.load(args.brake_file)
+        if brake.get("armed"):
+            print("BRAKE-ARMED: mirror-brake взведён — submit запрещён",
+                  file=sys.stderr)
+            wave["items"] = [{"name": e["name"], "target": e["target"],
+                              "outcome": "brake-armed",
+                              "error": "mirror-brake взведён (повторный сбой зеркала)"}
+                             for e in plan]
+            wave["counts"] = summarize(wave["items"])
+            wave["errors"] = collect_errors(wave["items"])
+            write_report(wave)
+            return 1
+
     print(f"wave: {len(plan)} package(s): {[p['name'] for p in plan]}")
     for entry in plan:
+        if brake_mod is not None and brake is not None:
+            ok, reason = brake_mod.submit_allowed(
+                brake, entry["name"], entry["target"],
+                cooldown_min=getattr(args, "cooldown_min", 1440))
+            if not ok:
+                res = dict(entry)
+                res["outcome"] = "retry-cooldown"
+                res["error"] = reason
+                wave["items"].append(res)
+                wave["counts"] = summarize(wave["items"])
+                write_report(wave)
+                print(f"  [BLOCKED] {reason}", flush=True)
+                continue
         print(f"=== {entry['name']}@{entry['target']} (mode={entry['mode']}) ===")
         try:
             res = process_package(entry, chroots, token, copr_conf, log_dir,
@@ -1074,6 +1209,17 @@ def parse_args(argv=None):
                          "не пересобирая план из живого state")
     ap.add_argument("--propagate-min", type=float, default=10.0,
                     help="сколько ждать разъезда repodata после зелёной сборки")
+    ap.add_argument("--recovery-allowlist", default=os.environ.get("WAVE_RECOVERY_ALLOWLIST") or None,
+                    help="recovery: файл или CSV имён пакетов; фильтр ДО плана")
+    ap.add_argument("--recovery", action="store_true",
+                    default=bool(os.environ.get("WAVE_RECOVERY")),
+                    help="recovery-режим: пустой allowlist => abort (fail-closed)")
+    ap.add_argument("--preflight-json", default=os.environ.get("WAVE_PREFLIGHT_JSON") or None,
+                    help="run: preflight-evidence; ok!=true => submit запрещён")
+    ap.add_argument("--brake-file", default=os.environ.get("WAVE_BRAKE_FILE") or None,
+                    help="run: state/retry-brake.json для cooldown/mirror-brake")
+    ap.add_argument("--cooldown-min", type=int,
+                    default=int(os.environ.get("WAVE_COOLDOWN_MIN", "1440")))
     sub = ap.add_subparsers(dest="command", required=True)
     sub.add_parser("plan", help="preview the wave (no submit)")
     sub.add_parser("run", help="execute the wave")
@@ -1085,7 +1231,8 @@ def canonicalize(argv):
     (`plan --max-wave 5` и `--max-wave 5 plan` — одно и то же)."""
     opts = ("--max-wave", "--force", "--confirm", "--token", "--copr-config",
             "--timeout-min", "--only", "--report-path", "--json-out",
-            "--plan-entry", "--propagate-min")
+            "--plan-entry", "--propagate-min", "--recovery-allowlist",
+            "--preflight-json", "--brake-file", "--cooldown-min", "--recovery")
     head, tail = [], []
     i = 0
     while i < len(argv):
@@ -1113,9 +1260,17 @@ def main(argv=None) -> int:
         print("ABORT: --force требует --confirm (force строится только вручную)", file=sys.stderr)
         return 1
     if args.command == "plan":
-        return cmd_plan(args)
+        try:
+            return cmd_plan(args)
+        except RecoveryAllowlistError as exc:
+            print(f"RECOVERY-ALLOWLIST-ERROR: {exc}", file=sys.stderr)
+            return 1
     if args.command == "run":
-        return cmd_run(args)
+        try:
+            return cmd_run(args)
+        except RecoveryAllowlistError as exc:
+            print(f"RECOVERY-ALLOWLIST-ERROR: {exc}", file=sys.stderr)
+            return 1
     return 1
 
 

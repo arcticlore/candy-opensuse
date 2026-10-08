@@ -430,7 +430,8 @@ class TestGateRunsBeforeCommitInWorkflow:
         merge = steps[merge_i][1]
         assert "wave_report_gate.py" in merge["run"], (
             "отчёты обязаны сверяться с plan.json")
-        assert "wave-plan-" in str(steps[3][1]), "исходный план должен скачиваться"
+        dl = next(s for _, s in steps if s.get("name") == "Download wave plan")
+        assert "wave-plan-" in str(dl), "исходный план должен скачиваться"
         # сверка — внутри шага merge, значит до generate/state sync
         assert merge_i < gen_i
 

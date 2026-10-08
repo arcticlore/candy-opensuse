@@ -1247,3 +1247,131 @@ class TestProvenanceSeparation:
         with pytest.raises(mod.WaveError, match="без SRPM URL"):
             mod.fetch_pilot_srpm("dysk", "3.7.1", builds,
                                  tmp_path / "SRPMS", build_id=11064066)
+
+
+class TestRecoveryAllowlist:
+    """Recovery-allowlist: фильтр ДО плана, fail-closed на пустом/битом вводе."""
+
+    PKGS = [{"name": "dua", "prio": 5, "enabled": True},
+            {"name": "dysk", "prio": 5, "enabled": True},
+            {"name": "ghfetch", "prio": 5, "enabled": True}]
+
+    def test_absent_allowlist_outside_recovery(self, mod):
+        assert mod.parse_allowlist(None, self.PKGS, recovery=False) is None
+
+    def test_empty_allowlist_in_recovery_aborts(self, mod):
+        with pytest.raises(mod.RecoveryAllowlistError):
+            mod.parse_allowlist(None, self.PKGS, recovery=True)
+        with pytest.raises(mod.RecoveryAllowlistError):
+            mod.parse_allowlist("   ", self.PKGS, recovery=True)
+
+    def test_csv_allowlist_is_parsed_and_deduped(self, mod):
+        names = mod.parse_allowlist("dysk, dua, dysk", self.PKGS, recovery=True)
+        assert names == ["dua", "dysk"]
+
+    def test_file_allowlist(self, mod, tmp_path):
+        f = tmp_path / "allow.txt"
+        f.write_text("ghfetch\n#comment\ndua\n")
+        names = mod.parse_allowlist(str(f), self.PKGS, recovery=True)
+        # '#'-строки не являются именами, но и не молча теряются: они —
+        # часть «неизвестного» ввода, поэтому список должен их отбросить.
+        assert names == ["dua", "ghfetch"]
+
+    def test_unknown_name_is_a_broken_allowlist(self, mod):
+        with pytest.raises(mod.RecoveryAllowlistError, match="неизвестные"):
+            mod.parse_allowlist("dysk,lavat", self.PKGS, recovery=True)
+
+    def test_apply_allowlist_filters_before_plan(self, mod):
+        filtered = mod.apply_allowlist(self.PKGS, ["dysk", "dua"])
+        assert [p["name"] for p in filtered] == ["dua", "dysk"]
+
+    def test_plan_cannot_grow_beyond_allowlist(self, mod):
+        plan = [{"name": "dysk"}, {"name": "ghfetch"}]
+        with pytest.raises(mod.RecoveryAllowlistError, match="вышел за"):
+            mod.assert_plan_within_allowlist(plan, ["dysk", "dua"])
+
+    def test_recovery_plan_only_contains_allowlist(self, mod):
+        filtered = mod.apply_allowlist(self.PKGS, ["dysk"])
+        plan = mod.build_plan(filtered, {"dua": "2.45.1", "dysk": "3.7.1",
+                                         "ghfetch": "20261002.4b44a4f"},
+                              {}, 5, stable_hist={}, pilot_published={},
+                              stable_published={}, pilot_completed={},
+                              stable_completed={})
+        assert [p["name"] for p in plan] == ["dysk"]
+        mod.assert_plan_within_allowlist(plan, ["dysk"])
+
+    def test_recovery_empty_allowlist_aborts_run(self, mod, monkeypatch, tmp_path,
+                                                 capfd):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "pkgs.json").write_text(json.dumps({
+            "project": {"chroots": ["opensuse-tumbleweed-x86_64"]},
+            "packages": self.PKGS}))
+        assert mod.main(["plan", "--recovery"]) == 1
+        assert "RECOVERY-ALLOWLIST-ERROR" in capfd.readouterr().err
+
+
+class TestPreflightGate:
+    def test_no_preflight_is_allowed_for_normal_wave(self, mod):
+        ok, _ = mod.preflight_gate(None)
+        assert ok is True
+
+    def test_missing_preflight_file_blocks(self, mod, tmp_path):
+        ok, reason = mod.preflight_gate(str(tmp_path / "nope.json"))
+        assert ok is False and "отсутствует" in reason
+
+    def test_corrupt_preflight_blocks(self, mod, tmp_path):
+        p = tmp_path / "pf.json"
+        p.write_text("{not json")
+        ok, reason = mod.preflight_gate(str(p))
+        assert ok is False and "битый" in reason
+
+    def test_red_preflight_blocks_with_reasons(self, mod, tmp_path):
+        p = tmp_path / "pf.json"
+        p.write_text(json.dumps({"ok": False, "reasons": ["http: 503"]}))
+        ok, reason = mod.preflight_gate(str(p))
+        assert ok is False and "503" in reason
+
+    def test_green_preflight_allows(self, mod, tmp_path):
+        p = tmp_path / "pf.json"
+        p.write_text(json.dumps({"ok": True, "reasons": []}))
+        assert mod.preflight_gate(str(p))[0] is True
+
+    def test_red_preflight_stops_run_before_any_build(self, mod, monkeypatch,
+                                                      tmp_path, capfd):
+        def explode(*a, **kw):
+            raise AssertionError("submit нельзя вызывать при красном preflight")
+        monkeypatch.setattr(mod, "process_package", explode)
+        monkeypatch.setattr(mod, "fetch_builds", lambda *a, **kw: [])
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "pkgs.json").write_text(json.dumps({
+            "project": {"chroots": ["opensuse-tumbleweed-x86_64"]},
+            "packages": [{"name": "x", "prio": 5, "enabled": True}]}))
+        (tmp_path / "state").mkdir()
+        (tmp_path / "state/state.json").write_text(json.dumps({"x": {"ver": "1.0"}}))
+        pf = tmp_path / "pf.json"
+        pf.write_text(json.dumps({"ok": False, "reasons": ["checksum: mismatch"]}))
+        assert mod.main(["run", "--max-wave", "1",
+                         "--preflight-json", str(pf)]) == 1
+        assert "PREFLIGHT-BLOCKED" in capfd.readouterr().err
+
+
+class TestBrakeGate:
+    def test_armed_brake_stops_run_before_any_build(self, mod, monkeypatch,
+                                                    tmp_path, capfd):
+        def explode(*a, **kw):
+            raise AssertionError("submit нельзя вызывать при взведённом brake")
+        monkeypatch.setattr(mod, "process_package", explode)
+        monkeypatch.setattr(mod, "fetch_builds", lambda *a, **kw: [])
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "pkgs.json").write_text(json.dumps({
+            "project": {"chroots": ["opensuse-tumbleweed-x86_64"]},
+            "packages": [{"name": "x", "prio": 5, "enabled": True}]}))
+        (tmp_path / "state").mkdir()
+        (tmp_path / "state/state.json").write_text(json.dumps({"x": {"ver": "1.0"}}))
+        brake = tmp_path / "brake.json"
+        rb = mod.load_retry_brake()
+        rb.save(str(brake), rb.observe_mirror(rb.load(str(brake)), "sig",
+                                              ok=False, threshold=1))
+        assert mod.main(["run", "--max-wave", "1",
+                         "--brake-file", str(brake)]) == 1
+        assert "BRAKE-ARMED" in capfd.readouterr().err
