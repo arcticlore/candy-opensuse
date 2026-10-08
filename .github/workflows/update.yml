@@ -483,6 +483,19 @@ jobs:
     timeout-minutes: 60
     container: fedora:44
     steps:
+      # git в fedora:44 нет: без него actions/checkout скачивает tarball БЕЗ
+      # .git, и последующие git fetch/commit/push в reconcile падают «not a
+      # git repository». Поэтому сначала toolchain (в т.ч. git), потом чекаут
+      # настоящего git-репозитория.
+      - name: Install toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          dnf install -y jq git gh rpm-build rpmdevtools dnf-plugins-core python3 \
+            > logs/dnf-install.log 2>&1 \
+            || { echo "dnf install failed:"; tail -20 logs/dnf-install.log; exit 1; }
+          tail -3 logs/dnf-install.log
+
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
@@ -504,15 +517,6 @@ jobs:
         with:
           name: preflight-${{ github.run_number }}
           path: preflight
-
-      - name: Install toolchain
-        run: |
-          set -euo pipefail
-          mkdir -p logs
-          dnf install -y jq git gh rpm-build rpmdevtools dnf-plugins-core python3 \
-            > logs/dnf-install.log 2>&1 \
-            || { echo "dnf install failed:"; tail -20 logs/dnf-install.log; exit 1; }
-          tail -3 logs/dnf-install.log
 
       - name: Collect wave artifacts
         continue-on-error: true
@@ -702,6 +706,7 @@ jobs:
       # что волна собиралась закоммитить.
       - name: Generate state/SPECS for PUBLISHED packages only
         id: generate
+        if: ${{ inputs.preflight_only != true }}
         env:
           GH_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
         run: |

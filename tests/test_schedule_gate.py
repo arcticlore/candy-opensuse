@@ -583,3 +583,21 @@ class TestStatePrDedupAndAutoMerge:
                    if "Fail unless" in s.get("name", ""))
         assert "retry-cooldown" in fin["run"], (
             "cooldown — сознательный пропуск, а не провал волны")
+
+
+class TestReconcileHasRealGitRepo:
+    def test_toolchain_with_git_installed_before_checkout(self, wf):
+        steps = wf["jobs"]["reconcile"]["steps"]
+        idx_git = next(i for i, s in enumerate(steps)
+                       if s.get("name") == "Install toolchain")
+        idx_co = next(i for i, s in enumerate(steps)
+                      if s.get("uses", "").startswith("actions/checkout@"))
+        assert idx_git < idx_co, (
+            "git обязан ставиться до checkout: иначе fedora:44 чекаутит tarball "
+            "БЕЗ .git и reconcile падает «not a git repository»")
+
+    def test_generate_skipped_in_preflight_only(self, wf):
+        gen = next(s for s in wf["jobs"]["reconcile"]["steps"]
+                   if s.get("id") == "generate")
+        assert "preflight_only" in gen.get("if", ""), (
+            "preflight-only не должен трогать state/SPECS")
