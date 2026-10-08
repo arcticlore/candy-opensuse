@@ -110,10 +110,58 @@ class TestReportGateMatchesPlan:
                                          str(tmp_path / "logs/report-*.json"))
         assert problems and "не найден" in problems[0], problems
 
-    def test_no_plan_and_no_reports_is_not_a_failure(self, tmp_path):
-        """Упавший plan + пропущенные package-job'ы: сверять нечего, но и врать не о чем."""
+    def test_missing_plan_with_zero_reports_is_a_failure(self, tmp_path):
+        """Регрессия: ноль отчётов + отсутствующий plan.json = ПРОВАЛ.
+
+        Раньше это считалось успехом, и волна могла «чисто» пройти сверку,
+        которой фактически не было.
+        """
+        problems = report_gate.reconcile(str(tmp_path / "plan.json"),
+                                         str(tmp_path / "logs/report-*.json"))
+        assert problems, "отсутствующий план обязан быть ошибкой даже без отчётов"
+        assert "не найден" in problems[0], problems
+
+    def test_missing_plan_json_file_with_zero_reports_is_a_failure(self, tmp_path):
+        """То же для явно переданного, но несуществующего пути."""
+        (tmp_path / "logs").mkdir()
+        problems = report_gate.reconcile(str(tmp_path / "logs/plan.json"),
+                                         str(tmp_path / "logs/report-*.json"))
+        assert problems and "не найден" in problems[0], problems
+
+    def test_valid_empty_plan_with_zero_reports_passes(self, tmp_path):
+        """Единственный допустимый «ноль отчётов»: packages=[] и plan_size=0."""
+        _plan(tmp_path / "plan.json", [])
         assert report_gate.reconcile(str(tmp_path / "plan.json"),
                                      str(tmp_path / "logs/report-*.json")) == []
+
+    @pytest.mark.parametrize("size,packages", [
+        (1, []),                      # plan_size врёт про пустой список
+        (0, [{"name": "dysk", "target": "3.7.1"}]),   # plan_size врёт про пакеты
+    ])
+    def test_inconsistent_plan_size_with_zero_reports_fails(self, tmp_path,
+                                                            size, packages):
+        _plan(tmp_path / "plan.json", packages)
+        path = tmp_path / "plan.json"
+        data = json.loads(path.read_text())
+        data["plan_size"] = size
+        path.write_text(json.dumps(data))
+        problems = report_gate.reconcile(str(path),
+                                         str(tmp_path / "logs/report-*.json"))
+        assert problems, "битый plan_size не должен считаться валидным планом"
+
+    def test_plan_without_plan_size_is_not_valid(self, tmp_path):
+        path = tmp_path / "plan.json"
+        path.write_text(json.dumps({"packages": []}))
+        problems = report_gate.reconcile(str(path),
+                                         str(tmp_path / "logs/report-*.json"))
+        assert problems and "plan_size" in problems[0], problems
+
+    def test_unparseable_plan_is_a_failure(self, tmp_path):
+        path = tmp_path / "plan.json"
+        path.write_text("{не json")
+        problems = report_gate.reconcile(str(path),
+                                         str(tmp_path / "logs/report-*.json"))
+        assert problems and "JSON" in problems[0], problems
 
     def test_empty_plan_with_stray_report_fails(self, tmp_path):
         _plan(tmp_path / "plan.json", [])
@@ -326,9 +374,9 @@ class TestGateRunsBeforeCommitInWorkflow:
     def test_gate_violation_fails_reconcile(self, wf):
         steps = self._steps(wf)
         names = [s.get("name", "") for _, s in steps]
-        assert any("sync gate rejected" in nm for nm in names), (
+        assert any("gate rejected" in nm for nm in names), (
             "посторонний путь обязан ронять reconcile, а не только отключать merge")
-        fail = next(s for _, s in steps if "sync gate rejected" in s.get("name", ""))
+        fail = next(s for _, s in steps if "gate rejected" in s.get("name", ""))
         assert fail.get("if", "").startswith("always()")
         assert "exit 1" in fail["run"]
 
@@ -347,6 +395,53 @@ class TestGateRunsBeforeCommitInWorkflow:
         assert "wave-plan-" in str(steps[3][1]), "исходный план должен скачиваться"
         # сверка — внутри шага merge, значит до generate/state sync
         assert merge_i < gen_i
+
+    def test_regen_fail_with_sync_pass_fails_reconcile_without_commit(self, wf):
+        """Регрессия: regen=fail + sync=ok больше не даёт зелёный run.
+
+        regen-check всегда выходил с кодом 0 (вердикт уходил в outputs), а
+        commit-шаг смотрел только на sync_gate — поэтому провал regen-гейта
+        оставался warn'ом в логе при ушедшем в ветку коммите.
+        """
+        steps = self._steps(wf)
+        commit = next(s for _, s in steps if s.get("id") == "sync")
+        guard = commit.get("if", "")
+        assert "steps.regen-check.outputs.regen_gate == 'ok'" in guard, (
+            "commit обязан требовать regen_gate=ok, иначе regen=fail коммитит")
+        assert "steps.regen-check.outputs.sync_gate == 'ok'" in guard
+        assert "git commit" in commit["run"]
+
+        fail = next(s for _, s in steps if "gate rejected" in s.get("name", ""))
+        fail_if = fail.get("if", "")
+        assert "regen_gate == 'fail'" in fail_if, (
+            "финальный fail-шаг обязан срабатывать и при regen=fail")
+        assert "sync_gate == 'fail'" in fail_if
+        assert "exit 1" in fail["run"]
+
+        # гейт обязан публиковать оба вердикта
+        gate = next(s for _, s in steps if s.get("id") == "regen-check")
+        assert "regen_gate=$REGEN_GATE" in gate["run"]
+        assert "sync_gate=$SYNC_GATE" in gate["run"]
+
+    def test_pr_create_failure_fails_state_publication(self, wf):
+        """Регрессия: падение `gh pr create` после push обязано быть красным.
+
+        Раньше это был warning-only: ветка запушена, PR не создан, а reconcile
+        оставался зелёным — state/SPECS не публиковались как ревьюируемые.
+        """
+        commit = next(s for _, s in self._steps(wf) if s.get("id") == "sync")
+        run = commit["run"]
+        assert "gh pr create" in run
+        assert "WARN: PR не создан" not in run, (
+            "ошибка создания PR не может быть warning-only")
+        # ветка ошибки должна содержать ::error:: и выходить с ненулевым кодом
+        tail = run.split("gh pr create", 1)[1]
+        assert "else" in tail
+        else_branch = tail.split("else", 1)[1]
+        assert "::error::" in else_branch, "падение PR обязано быть видно в логе"
+        assert "exit 1" in else_branch, (
+            "state publication обязана завершаться красным при ошибке PR")
+        assert "pr_url=" not in else_branch
 
     def test_plan_artifact_is_downloaded(self, wf):
         names = [s.get("name", "") for _, s in self._steps(wf)]

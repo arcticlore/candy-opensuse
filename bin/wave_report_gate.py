@@ -8,10 +8,11 @@
 
 Проверяется ДО state sync (иначе sync уже записал бы в репозиторий то, что
 планировалось, а не то, что было опубликовано):
+  * plan.json загружен и валиден — ВСЕГДА, даже при нуле отчётов;
   * набор name пакетов в отчётах == набор name в плане;
   * target каждого пакета совпадает с плановым (никакого self'евого target);
   * нет дублей имени ни внутри отчёта, ни между отчётами, ни в самом плане;
-  * отчётов без плана не бывает.
+  * ноль отчётов допустим только при packages=[] и plan_size=0.
 
 exit 0 — расхождений нет; exit 1 — есть, со списком причин.
 
@@ -28,22 +29,49 @@ import sys
 from pathlib import Path
 
 
-def load_plan(path: str) -> tuple[dict[str, str], list[str]]:
-    """-> (name -> target, список имён-дублей в плане)."""
+def load_plan(path: str) -> tuple[dict[str, str], int | None, list[str]]:
+    """-> (name -> target, plan_size, проблемы чтения/валидации плана).
+
+    План обязателен ВСЕГДА — даже когда отчётов ноль. Раньше отсутствие
+    plan.json при пустом наборе отчётов считалось успехом, и волна могла
+    «успешно» пройти сверку с несуществующим планом.
+    """
     p = Path(path)
     if not p.is_file():
-        return {}, []
-    data = json.loads(p.read_text() or "{}")
+        return {}, None, [f"plan.json ({path}) не найден — исходный план волны "
+                           "недоступен, сверять не с чем"]
+    try:
+        data = json.loads(p.read_text() or "{}")
+    except ValueError as exc:
+        return {}, None, [f"{path} не разбирается как JSON: {exc}"]
+    if not isinstance(data, dict):
+        return {}, None, [f"{path}: ожидался объект JSON, получен "
+                           f"{type(data).__name__}"]
+    packages = data.get("packages")
+    if not isinstance(packages, list):
+        return {}, None, [f"{path}: поле packages отсутствует или не список"]
+
+    problems: list[str] = []
     expected: dict[str, str] = {}
-    dupes: list[str] = []
-    for pkg in data.get("packages") or []:
+    for pkg in packages:
+        if not isinstance(pkg, dict):
+            problems.append(f"{path}: элемент плана не объект: {pkg!r}")
+            continue
         name = pkg.get("name")
         if not name:
             continue
         if name in expected:
-            dupes.append(name)
+            problems.append(f"план: пакет {name} встречается больше одного раза")
         expected[name] = pkg.get("target")
-    return expected, dupes
+
+    size = data.get("plan_size")
+    if not isinstance(size, int) or isinstance(size, bool):
+        problems.append(f"{path}: plan_size отсутствует или не число "
+                        f"({size!r}) — план нельзя считать валидным")
+    elif size != len(packages):
+        problems.append(f"{path}: plan_size={size} != числу пакетов "
+                        f"{len(packages)}")
+    return expected, size, problems
 
 
 def load_reports(pattern: str) -> tuple[dict[str, str], list[str], list[str]]:
@@ -69,19 +97,17 @@ def load_reports(pattern: str) -> tuple[dict[str, str], list[str], list[str]]:
 
 def reconcile(plan_path: str, pattern: str) -> list[str]:
     """Вернуть список нарушений (пусто == отчёты точно соответствуют плану)."""
-    expected, plan_dupes = load_plan(plan_path)
+    expected, _size, plan_problems = load_plan(plan_path)
     reported, report_dupes, files = load_reports(pattern)
 
     problems: list[str] = []
-    problems += [f"план: пакет {n} встречается больше одного раза" for n in plan_dupes]
+    problems += list(plan_problems)
     problems += [f"отчёты: пакет {n} встречается больше одного раза"
                  for n in report_dupes]
 
-    if not Path(plan_path).is_file():
-        if files:
-            problems.append(
-                f"есть {len(files)} отчёт(ов), но {plan_path} не найден — "
-                "сверять не с чем, итог недостоверен")
+    # Отсутствующий или битый план — ОШИБКА ВСЕГДА, в том числе когда отчётов
+    # ноль: иначе «0 отчётов + нет плана» читается как чистая волна.
+    if plan_problems:
         return problems
 
     for name in sorted(set(reported) - set(expected)):
@@ -93,6 +119,13 @@ def reconcile(plan_path: str, pattern: str) -> list[str]:
             problems.append(
                 f"target mismatch у {name}: план {expected[name]!r}, "
                 f"отчёт {reported[name]!r}")
+
+    # Ноль отчётов допустим ТОЛЬКО при реально загруженном валидном пустом
+    # плане (packages=[] и plan_size=0) — это уже гарантировано тем, что
+    # plan_problems пуст, а plan_size сверен с числом пакетов. Пустой план при
+    # наличии отчётов разобран выше как «лишний пакет».
+    if not files and expected:
+        problems.append(f"отчётов нет, но план требует {len(expected)} пакет(ов)")
     return problems
 
 

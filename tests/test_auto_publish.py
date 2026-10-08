@@ -26,6 +26,9 @@ def fake_pilot_srpm(monkeypatch, mod, payload=b"exact-pilot-srpm", default_id=11
 
     def _fake(name, target, builds, dest_dir, build_id=None):
         seen["build_id"] = build_id
+        assert build_id is not None, (
+            "fetch обязан получать ТОЧНЫЙ pilot_srpm_build — "
+            "succeeded-fallback удалён")
         dest = dest_dir / f"{name}-{target}.src.rpm"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(payload)
@@ -382,6 +385,7 @@ class TestProcessPackage:
 
     def _pkg(self, **kw):
         base = {"name": "CrabFetch", "target": "0.5.4", "pilot_build": None,
+                "pilot_srpm_build": 11031313,
                 "stable_build": None, "pilot_ok": True, "stable_ok": False,
                 "mode": "promote-only", "force": False}
         base.update(kw)
@@ -524,6 +528,7 @@ class TestProcessPackage:
 
         res = mod.process_package(
             {"name": name, "target": target, "pilot_build": None,
+             "pilot_srpm_build": 11064066,
              "stable_build": None, "pilot_ok": False, "stable_ok": False,
              "mode": "full", "force": False},
             self.CHROOTS, None, None, tmp_path / "logs", 1.0, {}, [])
@@ -540,7 +545,8 @@ class TestProcessPackage:
         # P0 exact-SRPM: make_srpm в 3/4 не вызывается вовсе
         assert forbidden == [], "3/4 обязан брать SRPM pilot-сборки, а не пересобирать"
         assert res["srpm_source"] == "pilot-build:11064066"
-        assert exact["build_id"] is None, "build_id в плане не задан — ищем succeeded"
+        assert exact["build_id"] == 11064066, (
+            "3/4 обязан идти за SRPM в ТОЧНЫЙ source build из плана")
         # и в pilot-недостающий chroot, и в stable ушёл один и тот же файл
         stable_srpm = [p for proj, p in zip([a[0] for a in submits], submitted_srpm)
                        if proj == mod.STABLE]
@@ -865,6 +871,7 @@ class TestPartialChrootRemediation:
                             lambda *a, **kw: (1, seen, "3/4"))
         monkeypatch.setattr(mod, "build_still_active", lambda *a, **kw: False)
         pkg = {"name": "dysk", "target": "3.7.1", "pilot_build": None,
+               "pilot_srpm_build": 11064066,
                "stable_build": None, "pilot_ok": False, "stable_ok": False,
                "mode": "full", "force": False}
         res = mod.process_package(pkg, self.CHROOTS, None, None, tmp_path / "logs",
@@ -887,6 +894,7 @@ class TestPartialChrootRemediation:
         monkeypatch.setattr(mod, "wait_exact_4_4", lambda *a, **kw: (1, seen, "1/4"))
         monkeypatch.setattr(mod, "build_still_active", lambda *a, **kw: False)
         pkg = {"name": "dysk", "target": "3.7.1", "pilot_build": 11064066,
+               "pilot_srpm_build": 11064066,
                "stable_build": None, "pilot_ok": False, "stable_ok": False,
                "mode": "full", "force": False}
         res = mod.process_package(pkg, self.CHROOTS, None, None, tmp_path / "logs",
@@ -919,6 +927,7 @@ class TestPartialChrootRemediation:
         # repodata: публикация стала полной именно после этой сборки
         monkeypatch.setattr(mod, "verify_published", lambda *a, **kw: (True, {}))
         pkg = {"name": "dysk", "target": "3.7.1", "pilot_build": None,
+               "pilot_srpm_build": 11064066,
                "stable_build": None, "pilot_ok": True, "stable_ok": False,
                "mode": "promote-only", "force": False}
         res = mod.process_package(pkg, self.CHROOTS, None, None, tmp_path / "logs",
@@ -1017,7 +1026,8 @@ class TestExactSrpmIdentity:
         asked = self._install_urlopen(monkeypatch, mod, {self.URL: self.PAYLOAD})
         path, sha, bid = mod.fetch_pilot_srpm("dysk", "3.7.1",
                                               [self._build(11064066, "succeeded")],
-                                              tmp_path / "SRPMS")
+                                              tmp_path / "SRPMS",
+                                              build_id=11064066)
         assert asked == [self.URL]
         with open(path, "rb") as fh:
             assert fh.read() == self.PAYLOAD, "сохранённый SRPM обязан быть байт-в-байт"
@@ -1075,6 +1085,7 @@ class TestExactSrpmIdentity:
 
         pkg = {"name": "dysk", "target": "3.7.1",
                "pilot_build": 11064066 if scenario == "resumed-pilot" else None,
+               "pilot_srpm_build": 11064066,
                "stable_build": None, "pilot_ok": False, "stable_ok": False,
                "mode": "full", "force": False}
         res = mod.process_package(pkg, ["tw-x86_64", "tw-aarch64",
@@ -1108,3 +1119,87 @@ class TestExactSrpmIdentity:
                                   1.0, {}, [])
         assert calls == ["dysk"]
         assert res["srpm_source"] == "fresh-make-srpm"
+
+
+class TestProvenanceSeparation:
+    """P0: плановый build и provenance SRPM — РАЗНЫЕ поля.
+
+    Регрессии, которые здесь закреплены:
+      * у терминального 3/4 `pilot_build` = None, но provenance-источник
+        обязан присутствовать как отдельный `pilot_srpm_build`;
+      * fetch идёт строго по ТОЧНОМУ id; никакого «найди succeeded-сборку
+        той же версии» — подмена дала бы второй SRPM на один target;
+      * helper `succeeded_build_url` удалён как таковой.
+    """
+
+    TERMINAL = {"dua": 11063545, "dysk": 11064066,
+                "ghfetch": 11064212, "pokemon-icat": 11064380}
+
+    @staticmethod
+    def _build(bid, state, name="dysk", version="3.7.1",
+               url="https://copr.example/dysk-3.7.1-1.fc44.src.rpm"):
+        return {"id": bid, "state": state,
+                "source_package": {"name": name, "version": version, "url": url}}
+
+    def test_terminal_ids_are_pinned_exactly(self, mod):
+        assert mod.PILOT_SRPM_PROVENANCE == self.TERMINAL
+
+    def test_legacy_succeeded_helper_is_gone(self, mod):
+        assert not hasattr(mod, "succeeded_build_url"), (
+            "поиск succeeded-сборки той же версии обязан быть удалён")
+
+    def test_terminal_failed_parent_keeps_resume_and_provenance_apart(self, mod):
+        """3/4: resume-слот пуст, provenance-слот указывает на source build."""
+        hist = {"dysk": [("failed", "3.7.1-1.fc44", 11064066)]}
+        plan = mod.build_plan([{"name": "dysk", "prio": 5, "enabled": True}],
+                              {"dysk": "3.7.1"}, hist, 5, stable_hist={},
+                              pilot_published={}, stable_published={},
+                              pilot_completed={}, stable_completed={})
+        assert len(plan) == 1
+        entry = plan[0]
+        assert entry["pilot_build"] is None, (
+            "терминальная сборка не активна — resume-слот должен быть пуст")
+        assert entry["pilot_srpm_build"] == 11064066, (
+            "provenance обязан указывать на источник опубликованных chroot'ов")
+
+    @pytest.mark.parametrize("name", sorted(TERMINAL))
+    def test_provenance_survives_into_the_plan_entry(self, mod, name):
+        hist = {name: [("failed", "3.7.1-1.fc44", 42)]}
+        plan = mod.build_plan([{"name": name, "prio": 5, "enabled": True}],
+                              {name: "3.7.1"}, hist, 5, stable_hist={},
+                              pilot_published={}, stable_published={},
+                              pilot_completed={}, stable_completed={})
+        assert plan[0]["pilot_srpm_build"] == self.TERMINAL[name]
+        assert plan[0]["pilot_build"] is None
+
+    def test_fetch_without_build_id_is_fail_closed(self, mod, tmp_path):
+        """Нет id в плане — НЕ пробуем succeeded-fallback, а отказываем."""
+        builds = [self._build(11064066, "succeeded")]
+        with pytest.raises(mod.WaveError, match="pilot_srpm_build"):
+            mod.fetch_pilot_srpm("dysk", "3.7.1", builds,
+                                 tmp_path / "SRPMS", build_id=None)
+
+    def test_fetch_with_unknown_id_does_not_search_for_anything(self, mod, tmp_path):
+        builds = [self._build(11064066, "succeeded"),
+                  self._build(11066000, "failed")]
+        with pytest.raises(mod.WaveError, match="не найдена"):
+            mod.fetch_pilot_srpm("dysk", "3.7.1", builds,
+                                 tmp_path / "SRPMS", build_id=11099999)
+
+    def test_fetch_rejects_foreign_package(self, mod, tmp_path):
+        builds = [self._build(11064066, "succeeded", name="dua")]
+        with pytest.raises(mod.WaveError, match="принадлежит dua"):
+            mod.fetch_pilot_srpm("dysk", "3.7.1", builds,
+                                 tmp_path / "SRPMS", build_id=11064066)
+
+    def test_fetch_rejects_version_mismatch(self, mod, tmp_path):
+        builds = [self._build(11064066, "succeeded", version="3.7.2")]
+        with pytest.raises(mod.WaveError, match="не совпадает"):
+            mod.fetch_pilot_srpm("dysk", "3.7.1", builds,
+                                 tmp_path / "SRPMS", build_id=11064066)
+
+    def test_fetch_rejects_build_without_srpm_url(self, mod, tmp_path):
+        builds = [self._build(11064066, "succeeded", url="")]
+        with pytest.raises(mod.WaveError, match="без SRPM URL"):
+            mod.fetch_pilot_srpm("dysk", "3.7.1", builds,
+                                 tmp_path / "SRPMS", build_id=11064066)

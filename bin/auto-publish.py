@@ -185,17 +185,46 @@ def active_build(hist: list[tuple[str, str, int]], target: str | None = None) ->
     return None
 
 
-def succeeded_build_url(builds: list[dict], name: str, target: str) -> tuple[int, str] | None:
-    """(build_id, srpm_url) последней УСПЕШНОЙ сборки name@target в проекте."""
-    for b in sorted(builds, key=lambda x: x.get("id", 0), reverse=True):
-        sp = b.get("source_package") or {}
-        if sp.get("name") != name or b.get("state") != "succeeded":
-            continue
-        if ver_base(sp.get("version", "")) != ver_base(target):
-            continue
-        url = sp.get("url")
-        if url:
-            return b["id"], url
+# Provenance точного pilot-SRPM для терминальных 3/4-пакетов.
+#
+# Эти сборки уже опубликовали успешные chroot'ы, поэтому их артефакт и есть
+# источник истины для remediation. Искать «любую succeeded-сборку той же
+# версии» нельзя: у терминального parent'а state != succeeded, а более старая
+# зелёная сборка той же базовой версии несла бы ДРУГОЙ SRPM — в репозитории
+# оказались бы два артефакта на один target.
+PILOT_SRPM_PROVENANCE = {
+    "dua": 11063545,
+    "dysk": 11064066,
+    "ghfetch": 11064212,
+    "pokemon-icat": 11064380,
+}
+
+
+def pilot_srpm_build_for(name: str, target: str,
+                         hist: list[tuple[str, str, int]],
+                         active: int | None) -> int | None:
+    """Точный id pilot-сборки-ИСТОЧНИКА SRPM для target (отдельно от resume).
+
+    `pilot_build` отвечает «за какую сборку продолжать наблюдение» — это
+    НЕтерминальная активная сборка, и для терминального 3/4 она равна None.
+    `pilot_srpm_build` отвечает «чей SRPM переиспользуем» — и для 3/4 это
+    ровно та сборка, которой уже опубликованы успешные chroot'ы.
+
+    Порядок:
+      1. явный provenance (терминальные 3/4) — авторитетен, не подменяется;
+      2. активная сборка этого target — она и есть источник своего SRPM;
+      3. самая новая сборка target'а из истории — закрывает promote-only,
+         где pilot уже 4/4 и активной сборки нет.
+    Ничего не нашлось -> None, и fetch уйдёт в fail-closed.
+    """
+    pinned = PILOT_SRPM_PROVENANCE.get(name)
+    if pinned is not None:
+        return pinned
+    if active is not None:
+        return active
+    for _state, ver, bid in hist:
+        if ver_base(ver) == ver_base(target):
+            return bid
     return None
 
 
@@ -313,12 +342,16 @@ def build_plan(
         stable_ok = repodata_has_target(stable_completed, name, target)
         if not force and pilot_ok and stable_ok:
             continue  # обе цели зелёные — ничего не делаем
+        active = None if pilot_ok else active_build(phist, target)
         plan.append({
             "name": name,
             "target": target,
             # pilot-сборку продолжаем только если версия совпадает с целью
-            "pilot_build": None if pilot_ok else active_build(phist, target),
+            "pilot_build": active,
             "stable_build": None if stable_ok else active_build(shist, target),
+            # provenance SRPM — ОТДЕЛЬНОЕ поле: для терминального 3/4 active
+            # равен None, но источник опубликованных chroot'ов известен.
+            "pilot_srpm_build": pilot_srpm_build_for(name, target, phist, active),
             "pilot_ok": pilot_ok,
             "stable_ok": stable_ok,
             "mode": "promote-only" if pilot_ok else "full",
@@ -438,32 +471,43 @@ def fetch_pilot_srpm(name: str, target: str, builds: list[dict],
     и в репозитории оказались бы два разных SRPM на один target. Поэтому здесь
     берётся байт-в-байт тот же SRPM, который уже уходил в pilot.
 
-    build_id — id из плана (resumed/active сборка). Если он задан, SRPM берётся
-    ИМЕННО из неё: подмена на другую сборку той же версии нарушила бы
-    byte-идентичность, поэтому тут нет fallback'а на succeeded-сборку.
+    build_id — ТОЧНЫЙ id pilot_srpm_build из immutable-плана. Fetch идёт
+    строго по нему: отсутствие сборки, чужая пакет-принадлежность или другая
+    базовая версия — это fail-closed, а не повод искать «любую succeeded
+    сборку той же версии». Такая подмена дала бы в репозитории второй SRPM
+    на один target.
     """
-    found = None
-    if build_id is not None:
-        for b in builds:
-            if b.get("id") != build_id:
-                continue
-            url = (b.get("source_package") or {}).get("url")
-            if not url:
-                raise WaveError(
-                    f"{name}: pilot-сборка {build_id} есть, но без SRPM URL — "
-                    "точный артефакт недоступен, submit невозможен")
-            found = (build_id, url)
-            break
-        if found is None:
-            raise WaveError(
-                f"{name}: pilot-сборка {build_id} не найдена в истории проекта — "
-                "возобновить наблюдение без своего SRPM нельзя")
-    else:
-        found = succeeded_build_url(builds, name, target)
-    if not found:
+    if build_id is None:
         raise WaveError(
-            f"{name}: pilot-цель {target} частично опубликована, но SRPM pilot-сборки "
-            "недоступен — remediation 3/4 без нарушения byte-идентичности невозможна")
+            f"{name}: provenance SRPM (pilot_srpm_build) не задан для {target} — "
+            "искать succeeded-сборку той же версии запрещено, remediation без "
+            "byte-идентичности невозможна")
+    build_id = int(build_id)
+    found = None
+    for b in builds:
+        if b.get("id") != build_id:
+            continue
+        sp = b.get("source_package") or {}
+        url = sp.get("url")
+        sp_name = sp.get("name")
+        if sp_name and sp_name != name:
+            raise WaveError(
+                f"{name}: сборка {build_id} принадлежит {sp_name}, а не {name} — "
+                "provenance не совпадает, submit заблокирован")
+        if ver_base(sp.get("version") or "") != ver_base(target):
+            raise WaveError(
+                f"{name}: сборка {build_id} несёт версию {sp.get('version')!r}, "
+                f"а цель {target!r} — provenance не совпадает")
+        if not url:
+            raise WaveError(
+                f"{name}: pilot-сборка {build_id} есть, но без SRPM URL — "
+                "точный артефакт недоступен, submit невозможен")
+        found = (build_id, url)
+        break
+    if found is None:
+        raise WaveError(
+            f"{name}: pilot-сборка {build_id} не найдена в истории проекта — "
+            "точный source build недоступен, remediation невозможна")
     build_id, url = found
     dest_dir.mkdir(parents=True, exist_ok=True)
     fname = os.path.basename(url)
@@ -636,6 +680,11 @@ def process_package(
                             "— сборка/промоут отменены (обновите state.json)")
             return out
 
+    # Provenance — отдельное поле immutable-плана, а не pilot_build: для
+    # терминального 3/4 active-сборки нет, но источник опубликованных chroot'ов
+    # известен точным id.
+    out["pilot_srpm_build"] = pkg.get("pilot_srpm_build")
+
     # --- PILOT scope: сначала узнаём, чего именно не хватает. От этого зависит
     #     и выбор SRPM, и то, куда вообще можно submit.
     if out["mode"] == "promote-only":
@@ -658,7 +707,7 @@ def process_package(
         try:
             srpm, sha, src_build = fetch_pilot_srpm(
                 name, target, pilot_builds, log_dir.parent / "SRPMS",
-                build_id=pkg.get("pilot_build"))
+                build_id=pkg.get("pilot_srpm_build"))
         except WaveError as exc:
             out["outcome"] = "not-attempted"
             out["error"] = str(exc)
@@ -824,7 +873,8 @@ def cmd_plan(args) -> int:
     for p in plan:
         print(f"  {p['name']}@{p['target']} mode={p['mode']} "
               f"pilot_build={p['pilot_build'] or '(new)'} "
-              f"stable_build={p['stable_build'] or '(new)'}")
+              f"stable_build={p['stable_build'] or '(new)'} "
+              f"pilot_srpm_build={p['pilot_srpm_build'] or '(none)'}")
     print(f"plan_size={len(plan)} pilot={PILOT} stable={STABLE}")
     print(f"published_probe=ok pilot_names={len(pilot_pub)} stable_names={len(stable_pub)}")
     if getattr(args, "json_out", None):
@@ -832,7 +882,10 @@ def cmd_plan(args) -> int:
         Path(args.json_out).write_text(json.dumps(
             {"packages": [{"name": p["name"], "target": p["target"],
                            "mode": p["mode"], "pilot_build": p["pilot_build"],
-                           "stable_build": p["stable_build"]} for p in plan],
+                           "stable_build": p["stable_build"],
+                           # без этого поля immutable-план не может отдать
+                           # точный source build fetch'у
+                           "pilot_srpm_build": p["pilot_srpm_build"]} for p in plan],
              "plan_size": len(plan),
              "stale_targets": stale_targets(pkgs["packages"], versions,
                                             pilot_pub, stable_pub)},

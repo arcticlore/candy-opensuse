@@ -201,7 +201,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # 2. Пакеты волны: независимые job'ы, максимум 3 одновременно.
   #
-  #    Почему не один job: run 36971434561 отменили на 320-минутном
+  #    Почему не один job: run 36971434567 отменили на 320-минутном
   #    таймауте, и четыре пакета, ушедшие в stable, потеряли результат вместе с
   #    ним. Теперь пакет = отдельный job, и его таймаут не трогает соседей.
   # ---------------------------------------------------------------------------
@@ -530,7 +530,7 @@ jobs:
             echo "regen-gate: spec-set + идемпотентность ok"
           else
             REGEN_GATE=fail
-            echo "regen-gate провален — auto-merge отключён" >&2
+            echo "::error::regen-gate провален — commit state/SPECS и auto-merge запрещены" >&2
           fi
 
           SYNC_GATE=ok
@@ -546,7 +546,7 @@ jobs:
 
       - name: Commit state/SPECS and open PR (only after gate passed)
         id: sync
-        if: success() && steps.generate.outputs.promoted != '' && steps.regen-check.outputs.sync_gate == 'ok'
+        if: success() && steps.generate.outputs.promoted != '' && steps.regen-check.outputs.regen_gate == 'ok' && steps.regen-check.outputs.sync_gate == 'ok'
         env:
           GH_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
@@ -574,9 +574,13 @@ jobs:
             echo "PR created: $PR_URL"
             echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
           else
-            echo "WARN: PR не создан (нет CANDY_BOT_TOKEN; GITHUB_TOKEN не может создавать PRs)"
-            echo "WARN: ветка $BRANCH запущена — PR доступен вручную:"
-            echo "gh pr create -R ${GITHUB_REPOSITORY} --base master --head $BRANCH"
+            # Ветка уже запушена, но PR не создан: публикация state/SPECS не
+            # состоялась как РЕВЬЮИРУЕМАЯ. Раньше это было warning-only, и
+            # reconcile оставался зелёным при фактически неопубликованном sync.
+            echo "::error::gh pr create не удался — ветка $BRANCH запушена, но PR не создан; state/SPECS не опубликованы как ревьюируемые"
+            echo "$PR_URL" >&2
+            echo "FAIL: PR create failed для $BRANCH" >&2
+            exit 1
           fi
 
 
@@ -624,13 +628,21 @@ jobs:
           name: wave-summary-${{ github.run_number }}
           path: logs/
 
-      # P0: посторонний путь или не-promoted ключ в sync-diff обязаны ронять
-      # reconcile. Шаг стоит последним, чтобы диагностика и артефакты успели
-      # залиться, но run не мог закончиться «успехом» с неожиданным коммитом.
-      - name: Fail reconcile when sync gate rejected the diff
-        if: always() && steps.regen-check.outputs.sync_gate == 'fail'
+      # P0: провал ЛЮБОГО гейта обязан ронять reconcile, а не только
+      # отключать auto-merge. Сценарий regen=fail, sync=ok раньше завершался
+      # зелёным: regen-check всегда выходил с кодом 0 (вердикт шёл в outputs),
+      # и check'у оставался только warn в логе. Шаг стоит последним, чтобы
+      # диагностика и артефакты успели залиться, но run не мог закончиться
+      # «успехом» с неожиданным коммитом.
+      - name: Fail reconcile when a sync/regen gate rejected the diff
+        if: always() && (steps.regen-check.outputs.sync_gate == 'fail' || steps.regen-check.outputs.regen_gate == 'fail')
         run: |
-          echo "::error::wave_sync_gate отклонил diff — ничего не закоммичено"
+          if [ "${{ steps.regen-check.outputs.regen_gate }}" = "fail" ]; then
+            echo "::error::regen_gate=fail — regen/спеки не прошли валидацию, commit запрещён"
+          fi
+          if [ "${{ steps.regen-check.outputs.sync_gate }}" = "fail" ]; then
+            echo "::error::sync_gate=fail — sync-diff вне promoted-набора, commit запрещён"
+          fi
           exit 1
 
   # Итог run'а: красный, если что-то не promoted. deferred тоже красный —
