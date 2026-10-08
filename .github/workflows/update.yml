@@ -34,6 +34,15 @@ on:
         description: "Pilot COPR-проект"
         required: false
         default: "arcticlore/candy-opensuse-pilot"
+      preflight_only:
+        description: "Только mirror-preflight (без plan/build; работает даже при CANDY_PUBLISH_PAUSE=true)"
+        type: boolean
+        required: false
+        default: false
+      recovery_allowlist:
+        description: "Recovery: файл/CSV имён пакетов; фильтр ДО плана (только workflow_dispatch)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -47,11 +56,100 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # 0. Mirror preflight: fail-closed проверка openSUSE-зеркала COPR ДО plan.
+  #    Запускается всегда (в т.ч. при CANDY_PUBLISH_PAUSE=true) и НЕ submit'ит.
+  #    Любая HTTP/transport/checksum/metadata/zypper ошибка => RED, plan не
+  #    стартует, matrix пуст — ни один билд не отправляется.
+  # ---------------------------------------------------------------------------
+  preflight:
+    name: mirror preflight (fail-closed)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      ok: ${{ steps.probe.outputs.ok || 'false' }}
+      fingerprint: ${{ steps.probe.outputs.fingerprint || 'unknown' }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+
+      - name: Real zypper refresh + download probe (Tumbleweed)
+        id: probe
+        env:
+          TW_REPO: https://download.copr.fedorainfracloud.org/results/arcticlore/candy-opensuse/opensuse-tumbleweed-x86_64
+        run: |
+          set +e
+          mkdir -p logs
+          docker run --rm -v "$PWD":/work -w /work \
+            registry.opensuse.org/opensuse/tumbleweed bash -ec '
+              zypper -n --gpg-auto-import-keys install -y python3 >/dev/null 2>&1
+              python3 bin/preflight.py \
+                --repo-url "'"$TW_REPO"'" \
+                --alias arcticlore-candy-opensuse \
+                --chroot opensuse-tumbleweed-x86_64 \
+                --package sd \
+                --out logs/preflight.json --log-dir logs
+            '
+          rc=$?
+          sudo chmod -R a+rX logs 2>/dev/null || true
+          OK=$(python3 -c "import json;print(str(json.load(open('logs/preflight.json'))['ok']).lower())" 2>/dev/null || echo false)
+          FP=$(python3 -c "import json;print(json.load(open('logs/preflight.json'))['fingerprint'])" 2>/dev/null || echo unknown)
+          echo "ok=$OK" >> "$GITHUB_OUTPUT"
+          echo "fingerprint=$FP" >> "$GITHUB_OUTPUT"
+          echo "preflight_rc=$rc ok=$OK fingerprint=$FP"
+          exit 0
+
+      - name: Upload preflight evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: preflight-${{ github.run_number }}
+          path: logs/
+
+      - name: Alert on red preflight (one issue per fingerprint)
+        if: always() && steps.probe.outputs.ok != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FP: ${{ steps.probe.outputs.fingerprint }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -u
+          TITLE="Mirror preflight failure (fingerprint ${FP})"
+          if gh issue list --state open --search "$TITLE in:title" --json title -q '.[].title' 2>/dev/null | grep -qF "$TITLE"; then
+            echo "duplicate issue for $FP уже открыт — второй не создаём"
+          else
+            gh issue create --title "$TITLE" \
+              --body "fail-closed mirror preflight упал: submit'ы заблокированы. Run: $RUN_URL" || true
+          fi
+
+      - name: Telegram alert on red preflight
+        if: always() && steps.probe.outputs.ok != 'true'
+        run: |
+          set -u
+          CHAT_ID="${{ secrets.TG_CHAT_ID }}"
+          BOT_TOKEN="${{ secrets.TG_BOT_TOKEN }}"
+          if [ -n "$CHAT_ID" ] && [ -n "$BOT_TOKEN" ]; then
+            curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+              -d chat_id="$CHAT_ID" -d parse_mode=HTML \
+              -d text="candy mirror preflight RED (fp ${{ steps.probe.outputs.fingerprint }}) — submits blocked" >/dev/null 2>&1 || true
+          fi
+
+      - name: Fail on red preflight (submit gate)
+        if: always() && steps.probe.outputs.ok != 'true'
+        run: |
+          echo "::error::mirror preflight красный — plan/package запрещены (fail-closed)"
+          exit 1
+
+  # ---------------------------------------------------------------------------
   # 1. План: быстрый, без submit. Определяет СПИСОК пакетов для матрицы.
   # ---------------------------------------------------------------------------
   plan:
     name: plan wave
     runs-on: ubuntu-latest
+    needs: preflight
+    # plan стартует только на зелёном preflight и не в preflight-only режиме
+    # (последний ничего не строит — только доказывает состояние зеркала).
+    if: needs.preflight.result == 'success' && inputs.preflight_only != true
     # План не ждёт COPR — только repodata. 60 минут с большим запасом.
     timeout-minutes: 60
     container: fedora:44
@@ -80,9 +178,14 @@ jobs:
           CANDY_PUBLISH_PAUSE: ${{ vars.CANDY_PUBLISH_PAUSE }}
           EVENT_NAME: ${{ github.event_name }}
           ACTOR: ${{ github.actor }}
+          PREFLIGHT_ONLY: ${{ inputs.preflight_only == true }}
+          RECOVERY_ALLOWLIST: ${{ inputs.recovery_allowlist || '' }}
         run: |
           set -euo pipefail
-          if [ "${CANDY_PUBLISH_PAUSE:-false}" = "true" ]; then
+          # Emergency brake. Исключение ровно одно: preflight-only режим —
+          # он НИЧЕГО не submit'ит и обязан быть запускаем при замороженной
+          # публикации, иначе нечем доказать состояние зеркала перед recovery.
+          if [ "${CANDY_PUBLISH_PAUSE:-false}" = "true" ] && [ "${PREFLIGHT_ONLY}" != "true" ]; then
             echo "ABORT: repo variable CANDY_PUBLISH_PAUSE=true (emergency brake)" >&2
             exit 1
           fi
@@ -118,11 +221,29 @@ jobs:
             echo "ABORT: max_wave вне диапазона 1..25 (получили $MAX_WAVE)" >&2
             exit 1
           fi
+          # Recovery-allowlist: только ручной запуск. Schedule НИКОГДА не
+          # включает recovery — иначе автомат произвольно сузил бы волну.
+          RECOVERY="false"
+          if [ -n "${RECOVERY_ALLOWLIST:-}" ]; then
+            if [ "$EVENT_NAME" != "workflow_dispatch" ]; then
+              echo "ABORT: recovery_allowlist допустим только через workflow_dispatch (событие: $EVENT_NAME)" >&2
+              exit 1
+            fi
+            case ",$MAINTAINER_ALLOWLIST," in
+              *",$ACTOR,"*) : ;;
+              *) echo "ABORT: actor=$ACTOR не в MAINTAINER_ALLOWLIST — recovery запрещён" >&2
+                 exit 1 ;;
+            esac
+            RECOVERY="true"
+          fi
           FORCE_FLAG=""
           [ "$FORCE" = "true" ] && FORCE_FLAG="--force"
           echo "force_flag=$FORCE_FLAG" >> "$GITHUB_OUTPUT"
           echo "max_wave=$MAX_WAVE" >> "$GITHUB_OUTPUT"
-          echo "SCOPE_OK wave=$MAX_WAVE force=${FORCE:-false}"
+          echo "recovery=$RECOVERY" >> "$GITHUB_OUTPUT"
+          echo "recovery_allowlist=$RECOVERY_ALLOWLIST" >> "$GITHUB_OUTPUT"
+          echo "preflight_only=$PREFLIGHT_ONLY" >> "$GITHUB_OUTPUT"
+          echo "SCOPE_OK wave=$MAX_WAVE force=${FORCE:-false} preflight_only=$PREFLIGHT_ONLY recovery=$RECOVERY"
 
       - name: Install toolchain
         run: |
@@ -177,6 +298,10 @@ jobs:
           COPR_PILOT: ${{ inputs.pilot_project || 'arcticlore/candy-opensuse-pilot' }}
           COPR_API_TOKEN: ${{ secrets.COPR_API_TOKEN }}
           WAVE_MAX: ${{ steps.scope.outputs.max_wave }}
+          # Recovery-allowlist фильтрует пакеты ДО построения плана; пустой
+          # allowlist при recovery=true => abort внутри auto-publish (fail-closed).
+          WAVE_RECOVERY_ALLOWLIST: ${{ steps.scope.outputs.recovery_allowlist }}
+          WAVE_RECOVERY: ${{ steps.scope.outputs.recovery }}
         run: |
           set -o pipefail
           python3 bin/auto-publish.py plan --max-wave "$WAVE_MAX" \
@@ -232,6 +357,24 @@ jobs:
         with:
           persist-credentials: false
 
+      # Тормоз blind-retry: cooldown/mirror-brake читается только для чтения,
+      # пишет его ЕДИНСТВЕННЫЙ владелец — reconcile (чтобы 3 параллельных
+      # package-job не гонялись за один и тот же файл).
+      - name: Restore retry-brake (read-only)
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: logs/retry-brake.json
+          key: retry-brake-${{ github.run_id }}
+          restore-keys: |
+            retry-brake-
+
+      - name: Download preflight evidence
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: preflight-${{ github.run_number }}
+          path: preflight
+
       - name: Install toolchain
         run: |
           set -euo pipefail
@@ -281,6 +424,10 @@ jobs:
           # state.json — исполняет ровно то, что было решено в plan-job.
           WAVE_PLAN_ENTRY: ${{ toJSON(matrix.pkg) }}
           WAVE_REPORT_PATH: logs/report-${{ matrix.pkg.name }}.json
+          # fail-closed: run отказывается submit'ить при отсутствующем/красном
+          # preflight-evidence или при взведённом mirror-brake.
+          WAVE_PREFLIGHT_JSON: preflight/preflight.json
+          WAVE_BRAKE_FILE: logs/retry-brake.json
           PKG_TIMEOUT_MIN: "300"
         run: |
           set +e
@@ -307,6 +454,8 @@ jobs:
           case "$OUTCOME" in
             promoted) echo "::notice::$PKG => promoted" ;;
             not-in-wave) echo "::notice::$PKG => не требует публикации (цель уже достигнута)" ;;
+            retry-cooldown) echo "::notice::$PKG => cooldown: терминальное падение не переотправляется автоматически" ;;
+            preflight-blocked|brake-armed) echo "::error::$PKG => $OUTCOME — submit запрещён"; exit 1 ;;
             deferred) echo "::warning::$PKG => deferred (COPR не успел; resubmit не делаем, build id сохранён)"
                      exit 1 ;;
             *) echo "::error::$PKG => $OUTCOME"; exit 1 ;;
@@ -337,6 +486,24 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           persist-credentials: false
+
+      # Единственный писатель retry-brake. Восстанавливаем прошлое состояние,
+      # обновляем по итогам волны/префлайта и сохраняем с уникальным ключом;
+      # package-job'ы читают тот же префикс read-only.
+      - name: Restore/save retry-brake
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: logs/retry-brake.json
+          key: retry-brake-${{ github.run_id }}
+          restore-keys: |
+            retry-brake-
+
+      - name: Download preflight evidence
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: preflight-${{ github.run_number }}
+          path: preflight
 
       - name: Install toolchain
         run: |
@@ -370,9 +537,17 @@ jobs:
         env:
           PLAN_RESULT: ${{ needs.plan.result }}
           PLAN_SIZE: ${{ needs.plan.outputs.plan_size }}
+          PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
         run: |
           set -euo pipefail
           mkdir -p logs
+          # preflight-only: план/билды не запускались намеренно — это
+          # диагностический успех, а не «потерянные отчёты».
+          if [ "${PREFLIGHT_ONLY:-false}" = "true" ]; then
+            echo "preflight-only: отчётов пакетов нет (plan/build не запускались)"
+            python3 -c 'import json;json.dump({"items":[],"counts":{},"deferred":[],"stale_targets":[]},open("logs/wave-report.json","w"),ensure_ascii=False,indent=2)'
+            exit 0
+          fi
           cp -f collected/report-*.json logs/ 2>/dev/null || true
 
           # P0: сверка отчётов с ИСХОДНЫМ планом — раньше wave-report и
@@ -420,6 +595,69 @@ jobs:
           for i in wave["items"]:
               print(f"  {i['name']}: {i.get('outcome')} "
                     f"pilot={i.get('pilot_build','-')} stable={i.get('stable_build','-')}")
+          PY
+
+      # Тормоз blind-retry: терминальные падения получают cooldown, успех его
+      # снимает; одинаковый mirror-failure копится и взводит общий armed-brake.
+      - name: Update retry-brake (cooldown + mirror observation)
+        if: always()
+        run: |
+          set -u
+          python3 - logs/retry-brake.json <<'PY'
+          import json, sys, time
+          from pathlib import Path
+          path = Path(sys.argv[1])
+          data = {"version": 1, "armed": False, "mirror": {}, "packages": {}}
+          if path.exists():
+              try:
+                  data = json.loads(path.read_text())
+              except ValueError:
+                  pass
+          data.setdefault("version", 1)
+          data.setdefault("armed", False)
+          data.setdefault("mirror", {})
+          data.setdefault("packages", {})
+          now = int(time.time())
+
+          pf = Path("preflight/preflight.json")
+          if pf.exists():
+              try:
+                  p = json.loads(pf.read_text())
+                  fp = p.get("fingerprint", "unknown")
+                  if p.get("ok"):
+                      data["mirror"].pop(fp, None)
+                  else:
+                      m = data["mirror"].setdefault(fp, {"count": 0, "first_ts": now})
+                      m["count"] = int(m.get("count", 0)) + 1
+                      m["last_ts"] = now
+                      if m["count"] >= 2:
+                          data["armed"] = True
+              except ValueError:
+                  pass
+
+          terminal_bad = {"pilot-submit-failure", "stable-submit-failure",
+                          "pipeline-error", "downgrade-blocked", "srpm-skip"}
+          rp = Path("logs/wave-report.json")
+          if rp.exists():
+              try:
+                  rep = json.loads(rp.read_text())
+              except ValueError:
+                  rep = {}
+              for it in rep.get("items", []):
+                  key = f"{it.get('name')}@{it.get('target', '')}"
+                  e = data["packages"].setdefault(key, {})
+                  if it.get("outcome") == "promoted":
+                      e["last_state"] = "ok"
+                      e["fail_count"] = 0
+                      e["last_ok_ts"] = now
+                  elif it.get("outcome") in terminal_bad:
+                      e["last_state"] = "failed"
+                      e["last_fail_ts"] = now
+                      e["fail_count"] = int(e.get("fail_count", 0)) + 1
+
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+          print("retry-brake: armed=%s pkgs=%d" % (data["armed"], len(data["packages"])))
           PY
 
       - name: Auto-issue (failures из волны + deferred + failed в stable)
@@ -557,12 +795,21 @@ jobs:
           fi
           # Что именно коммитим — печатаем, чтобы ревью видело состав.
           git status --porcelain -- state/state.json SPECS/ pkgs.json
-          BRANCH="candy-bot/publish-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git remote add origin "$REMOTE_URL" 2>/dev/null || git remote set-url origin "$REMOTE_URL"
           git config user.name "candy-bot"
           git config user.email "candy-bot@users.noreply.github.com"
           git add -A -- state/state.json SPECS/ pkgs.json
+          # Имя ветки детерминировано содержимым diff'а: одинаковый sync даёт
+          # одну и ту же ветку, поэтому дубль bot-PR создать нельзя.
+          CONTENT_HASH=$(git diff --cached --binary -- state/state.json SPECS/ pkgs.json | sha256sum | cut -c1-12)
+          BRANCH="candy-bot/publish-${CONTENT_HASH}"
+          EXISTING=$(gh pr list --state open --head "$BRANCH" --json url -q '.[0].url' 2>/dev/null || true)
+          if [ -n "$EXISTING" ]; then
+            echo "идентичный bot-PR уже открыт: $EXISTING — дубль не создаём"
+            echo "pr_url=$EXISTING" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git remote add origin "$REMOTE_URL" 2>/dev/null || git remote set-url origin "$REMOTE_URL"
           git commit -qm "publish sync: state targets + specs after wave ${GITHUB_RUN_ID}"
           if ! git push origin "HEAD:refs/heads/$BRANCH"; then
             echo "ERROR: git push failed for $BRANCH" >&2
@@ -595,11 +842,15 @@ jobs:
           REGEN_GATE: ${{ steps.regen-check.outputs.regen_gate }}
         run: |
           set -uo pipefail
-          if [ "$REGEN_GATE" = "ok" ]; then
-            gh pr merge "$PR_URL" --auto --squash --delete-branch \
-              || echo "WARN: auto-merge не включён (checks ещё не зелёные — это штатно)" >&2
-          else
+          if [ "$REGEN_GATE" != "ok" ]; then
             echo "INFO: auto-merge отключён (regen-gate не пройден по сгенерированному diff)"
+            exit 0
+          fi
+          # Падение включения auto-merge обязано быть красным: иначе PR молча
+          # остаётся открытым и не мержится, а run притворяется успешным.
+          if ! gh pr merge "$PR_URL" --auto --squash --delete-branch; then
+            echo "::error::auto-merge не включён для $PR_URL — PR не сольётся автоматически" >&2
+            exit 1
           fi
 
       - name: Telegram notification
@@ -668,9 +919,16 @@ jobs:
           PLAN_RESULT: ${{ needs.plan.result }}
           PKG_RESULT: ${{ needs.package.result }}
           RECONCILE_RESULT: ${{ needs.reconcile.result }}
+          PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
         run: |
           set -euo pipefail
           echo "plan=$PLAN_RESULT package=$PKG_RESULT reconcile=$RECONCILE_RESULT"
+          # preflight-only: единственная цель — доказать состояние зеркала;
+          # отсутствие плана/билдов здесь штатно (и preflight уже отдал вердикт).
+          if [ "${PREFLIGHT_ONLY:-false}" = "true" ]; then
+            echo "preflight-only run: план/билды не запускались — диагностический успех"
+            exit 0
+          fi
           # Упавший plan означает, что волну вообще не планировали: молчаливо
           # «успешного» отчёта быть не должно.
           if [ "$PLAN_RESULT" != "success" ]; then
@@ -688,7 +946,7 @@ jobs:
           if not items:
               print("волна пуста (нечего публиковать) — это успех")
               sys.exit(0)
-          bad = [i for i in items if i.get("outcome") not in ("promoted", "not-in-wave")]
+          bad = [i for i in items if i.get("outcome") not in ("promoted", "not-in-wave", "retry-cooldown")]
           for i in bad:
               print(f"::error::{i['name']}: {i.get('outcome')} {i.get('error','')}")
           print("deferred (ждали COPR, resubmit не делаем):", r.get("deferred", []))

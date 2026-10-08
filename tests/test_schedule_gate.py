@@ -419,3 +419,167 @@ class TestWaveShape:
         assert wf["concurrency"]["group"] == "opensuse-auto-publish"
         assert wf["concurrency"]["cancel-in-progress"] is False, (
             "текущая волна должна дорабатываться, а не отменяться новой")
+
+
+class TestMirrorPreflightGate:
+    """Fail-closed preflight: красное зеркало блокирует ЛЮБОЙ submit."""
+
+    def _job(self, wf, name):
+        return wf["jobs"][name]
+
+    def test_preflight_job_exists_and_runs_pause_free(self, wf):
+        pf = self._job(wf, "preflight")
+        # preflight не должен зависеть от scope-check, который падает на pause
+        assert pf.get("needs") in (None, [])
+        names = [s.get("name", "") for s in pf["steps"]]
+        assert any("zypper" in n.lower() and "probe" in n.lower() for n in names), (
+            "preflight обязан делать реальный zypper probe")
+        probe = next(s for s in pf["steps"]
+                     if "Probe" in s.get("name", "") or "probe" in s.get("name", ""))
+        assert "bin/preflight.py" in probe["run"]
+        assert "tumbleweed" in probe["run"]
+
+    def test_red_preflight_fails_job(self, wf):
+        pf = self._job(wf, "preflight")
+        fail = next(s for s in pf["steps"]
+                    if "Fail on red preflight" in s.get("name", ""))
+        assert fail.get("if", "").startswith("always()")
+        assert "exit 1" in fail["run"]
+        assert "steps.probe.outputs.ok != 'true'" in fail["if"]
+
+    def test_preflight_uploads_evidence_and_dedups_issue(self, wf):
+        pf = self._job(wf, "preflight")
+        up = next(s for s in pf["steps"]
+                  if "Upload preflight evidence" in s.get("name", ""))
+        assert up["with"]["name"] == "preflight-${{ github.run_number }}"
+        alert = next(s for s in pf["steps"]
+                     if "Alert on red preflight" in s.get("name", ""))
+        assert "gh issue list" in alert["run"] and "duplicate" in alert["run"]
+
+    def test_plan_requires_green_preflight(self, wf):
+        plan = wf["jobs"]["plan"]
+        assert plan.get("needs") == "preflight"
+        cond = plan.get("if", "")
+        assert "needs.preflight.result == 'success'" in cond
+        assert "inputs.preflight_only != true" in cond
+
+    def test_pause_brake_exempts_preflight_only_in_scope(self, scope_run):
+        assert "PREFLIGHT_ONLY" in scope_run, (
+            "scope-check должен знать про preflight-only режим")
+        # исключение ровно одно: preflight-only не submit'ит
+        assert 'PREFLIGHT_ONLY}" != "true"' in scope_run
+
+    def test_preflight_only_mode_is_green(self, wf):
+        merge = next(s for s in wf["jobs"]["reconcile"]["steps"]
+                     if s.get("id") == "merge")
+        assert "PREFLIGHT_ONLY" in str(merge.get("env", {}))
+        assert "preflight-only" in merge["run"]
+        fin = next(s for s in wf["jobs"]["finalize"]["steps"]
+                   if "Fail unless" in s.get("name", ""))
+        assert "PREFLIGHT_ONLY" in str(fin.get("env", {}))
+        assert "preflight-only run" in fin["run"]
+
+
+class TestRecoveryAllowlistGate:
+    def test_recovery_only_on_workflow_dispatch(self, scope_run):
+        assert "recovery_allowlist" in scope_run
+        assert "RECOVERY_ALLOWLIST" in scope_run
+        assert 'EVENT_NAME" != "workflow_dispatch"' in scope_run
+        # recovery требует actor из MAINTAINER_ALLOWLIST
+        assert "не в MAINTAINER_ALLOWLIST — recovery" in scope_run
+
+    def test_plan_receives_recovery_allowlist(self, wf):
+        step = next(s for s in wf["jobs"]["plan"]["steps"]
+                    if s.get("id") == "plan")
+        env = step.get("env", {})
+        assert env.get("WAVE_RECOVERY_ALLOWLIST") == \
+            "${{ steps.scope.outputs.recovery_allowlist }}"
+        assert env.get("WAVE_RECOVERY") == "${{ steps.scope.outputs.recovery }}"
+
+    def test_recovery_inputs_declared(self, wf):
+        triggers = wf[True] if True in wf else wf["on"]
+        inputs = triggers["workflow_dispatch"]["inputs"]
+        assert "recovery_allowlist" in inputs
+        assert "preflight_only" in inputs
+
+    def test_schedule_never_enables_recovery(self, wf):
+        """Schedule-контекст inputs пуст => recovery всегда false."""
+        step = next(s for s in wf["jobs"]["plan"]["steps"]
+                    if s.get("id") == "scope")
+        # recovery вычисляется ТОЛЬКО из RECOVERY_ALLOWLIST, которая на
+        # schedule пуста (inputs недоступны) — и это гарантирует scope-check.
+        assert 'RECOVERY="false"' in step["run"]
+        assert 'if [ -n "${RECOVERY_ALLOWLIST:-}" ]' in step["run"]
+
+
+class TestNoBlindRetryWiring:
+    def test_package_job_is_fail_closed_on_preflight_and_brake(self, wf):
+        exec_step = next(s for s in wf["jobs"]["package"]["steps"]
+                         if s.get("id") == "exec")
+        env = exec_step.get("env", {})
+        assert env.get("WAVE_PREFLIGHT_JSON") == "preflight/preflight.json"
+        assert env.get("WAVE_BRAKE_FILE") == "logs/retry-brake.json"
+
+    def test_package_downloads_preflight_evidence(self, wf):
+        names = [s.get("name", "") for s in wf["jobs"]["package"]["steps"]]
+        assert any("Download preflight evidence" in n for n in names)
+
+    def test_package_uses_readonly_cache_restore(self, wf):
+        steps = wf["jobs"]["package"]["steps"]
+        use = [s.get("uses", "") for s in steps]
+        assert any(u.startswith("actions/cache/restore@") for u in use), (
+            "package-job читает brake только для чтения (единственный писатель — reconcile)")
+
+    def test_cooldown_and_brake_outcomes_are_terminal_states(self, wf):
+        concl = next(s for s in wf["jobs"]["package"]["steps"]
+                     if s.get("name", "").startswith("Package conclusion"))
+        assert "retry-cooldown" in concl["run"], (
+            "cooldown — явный исход, а не молчаливый ретрай")
+        assert "preflight-blocked" in concl["run"]
+        assert "brake-armed" in concl["run"]
+
+    def test_reconcile_is_single_writer_of_brake(self, wf):
+        steps = wf["jobs"]["reconcile"]["steps"]
+        use = [s.get("uses", "") for s in steps]
+        assert any(u.startswith("actions/cache@") for u in use), (
+            "reconcile обязан СОХРАНЯТЬ brake (единственный писатель)")
+        upd = next(s for s in steps
+                   if s.get("name", "").startswith("Update retry-brake"))
+        assert "logs/retry-brake.json" in upd["run"]
+        assert "armed" in upd["run"]
+
+    def test_cooldown_blocks_in_auto_publish(self):
+        import subprocess
+        src = open(os.path.join(ROOT, "bin/auto-publish.py")).read()
+        assert "submit_allowed" in src, "run обязан проверять cooldown/brake"
+        assert "PREFLIGHT-BLOCKED" in src
+        assert "BRAKE-ARMED" in src
+        assert "retry-cooldown" in src
+
+
+class TestStatePrDedupAndAutoMerge:
+    def test_branch_name_is_content_addressed(self, wf):
+        sync = next(s for s in wf["jobs"]["reconcile"]["steps"]
+                    if s.get("id") == "sync")
+        assert "CONTENT_HASH" in sync["run"]
+        assert 'BRANCH="candy-bot/publish-${CONTENT_HASH}"' in sync["run"], (
+            "детерминированное имя ветки не даёт создать дубль bot-PR")
+
+    def test_existing_open_pr_is_reused(self, wf):
+        sync = next(s for s in wf["jobs"]["reconcile"]["steps"]
+                    if s.get("id") == "sync")
+        assert "gh pr list --state open --head" in sync["run"]
+        assert "дубль не создаём" in sync["run"]
+
+    def test_auto_merge_failure_is_red(self, wf):
+        merge = next(s for s in wf["jobs"]["reconcile"]["steps"]
+                     if s.get("name", "").startswith("Enable auto-merge"))
+        assert "exit 1" in merge["run"], (
+            "падение auto-merge обязано быть красным")
+        assert "::error::" in merge["run"]
+
+    def test_finalize_treats_cooldown_as_nonfatal(self, wf):
+        fin = next(s for s in wf["jobs"]["finalize"]["steps"]
+                   if "Fail unless" in s.get("name", ""))
+        assert "retry-cooldown" in fin["run"], (
+            "cooldown — сознательный пропуск, а не провал волны")
