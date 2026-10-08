@@ -242,3 +242,21 @@ class TestCoprKeyAndArch:
         assert imports, "ключ COPR обязан импортироваться"
         assert runner.calls.index(imports[0]) < next(
             i for i, c in enumerate(runner.calls) if "refresh" in c)
+
+
+class TestProbeIsolatesTargetRepo:
+    def test_refresh_ignores_unsigned_repomd(self, tmp_path, monkeypatch):
+        fetcher, runner, _ = _green_env(tmp_path, monkeypatch)
+        pf.probe(_cfg(), runner=runner, fetcher=fetcher, log_dir=tmp_path)
+        refresh = next(c for c in runner.calls if "refresh" in c)
+        assert "--no-gpg-checks" in refresh, (
+            "COPR openSUSE без repomd.xml.asc: иначе refresh валит подпись")
+
+    def test_download_restricted_to_target_repo(self, tmp_path, monkeypatch):
+        fetcher, runner, _ = _green_env(tmp_path, monkeypatch)
+        res = pf.probe(_cfg(), runner=runner, fetcher=fetcher, log_dir=tmp_path)
+        assert res["ok"] is True, res["reasons"]
+        install = next(c for c in runner.calls if "install" in c)
+        i = install.index("--from")
+        assert install[i + 1] == "candy", (
+            "иначе имя может прийти из основного Tumbleweed и дать ложный mismatch")

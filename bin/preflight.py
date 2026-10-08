@@ -318,7 +318,12 @@ def probe(cfg: dict, runner=None, fetcher=None, log_dir=None) -> dict:
                     step("pubkey", False,
                          reason=f"transport: не скачался ключ COPR: {exc}")
         if not reasons:
-            refresh = ["zypper", "-n", "--gpg-auto-import-keys", "refresh", alias]
+            # У COPR openSUSE-репозиториев НЕТ отсоединённой подписи repomd
+            # (repomd.xml.asc -> 404), поэтому zypper не может её проверить и
+            # валит refresh на «Signature verification failed for repomd.xml».
+            # Целостность при этом всё равно проверяем сами: sha256 скачанного
+            # пакета обязан совпасть с checksum из primary.xml + rpm -K.
+            refresh = ["zypper", "-n", "--no-gpg-checks", "refresh", alias]
             rc, out, err = runner.run(refresh, timeout=900)
             _log(log_dir, "preflight-zypper-refresh.log", out + err)
             if rc != 0:
@@ -328,8 +333,13 @@ def probe(cfg: dict, runner=None, fetcher=None, log_dir=None) -> dict:
             else:
                 step("zypper-refresh", True, cmd=" ".join(refresh), rc=rc)
         if not reasons:
-            dl = ["zypper", "-n", "--no-refresh", "install", "--download-only",
-                  "-y", f"{name}{'=' + wanted if wanted else ''}"]
+            # --from alias обязателен: имя пакета может существовать и в
+            # основных репозиториях Tumbleweed, и без этого zypper скачает его
+            # оттуда, а мы сравним checksum с COPR-метаданными и получим ложный
+            # mismatch. Нам нужен именно артефакт целевого COPR-репозитория.
+            dl = ["zypper", "-n", "--no-gpg-checks", "install", "--download-only",
+                  "-y", "--from", alias,
+                  f"{name}{'=' + wanted if wanted else ''}"]
             rc, out, err = runner.run(dl, timeout=900)
             _log(log_dir, "preflight-zypper-download.log", out + err)
             if rc != 0:
