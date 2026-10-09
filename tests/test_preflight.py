@@ -187,3 +187,76 @@ class TestPreflightDecision:
         rc = pf.main(["--repo-url", "https://example.invalid/repo",
                       "--package", "xh", "--log-dir", str(tmp_path)])
         assert rc == 1
+
+
+class TestCoprKeyAndArch:
+    def test_copr_pubkey_url(self):
+        assert pf.copr_pubkey_url(
+            "https://download.copr.fedorainfracloud.org/results/o/p/"
+            "opensuse-tumbleweed-x86_64"
+        ) == "https://download.copr.fedorainfracloud.org/results/o/p/pubkey.gpg"
+        assert pf.copr_pubkey_url("https://example.org/repo") is None
+
+    def test_primary_skips_src_rpm(self):
+        primary = (
+            b'<?xml version="1.0"?>'
+            b'<metadata xmlns="http://linux.duke.edu/metadata/common">'
+            b'<package type="rpm"><name>sd</name><arch>src</arch>'
+            b'<version ver="1.1.0"/>'
+            b'<location href="Packages/s/sd-1.1.0-1.suse.tw.src.rpm"/>'
+            b'<checksum type="sha256">AAAA</checksum></package>'
+            b'<package type="rpm"><name>sd</name><arch>x86_64</arch>'
+            b'<version ver="1.1.0"/>'
+            b'<location href="Packages/s/sd-1.1.0-1.suse.tw.x86_64.rpm"/>'
+            b'<checksum type="sha256">BBBB</checksum></package>'
+            b'</metadata>')
+        got = pf.parse_primary(primary, "sd")
+        assert got["arch"] == "x86_64"
+        assert got["checksum"] == "BBBB"
+        assert got["location"].endswith(".x86_64.rpm")
+
+    def test_copr_key_is_imported_before_refresh(self, tmp_path, monkeypatch):
+        rpm = tmp_path / "sd-1.1.0.x86_64.rpm"
+        rpm.write_bytes(b"bytes")
+        sha = hashlib.sha256(b"bytes").hexdigest()
+        primary = _primary("sd", "1.1.0", "Packages/s/sd.x86_64.rpm", sha)
+        gz = gzip.compress(primary)
+        calls = []
+
+        def fetcher(url):
+            if url.endswith("pubkey.gpg"):
+                calls.append("pubkey")
+                return b"PGP-KEY"
+            return _repomd(checksum=sha) if url.endswith("repomd.xml") else gz
+
+        monkeypatch.setattr(pf, "_find_downloaded", lambda *a: str(rpm))
+        runner = FakeRunner(rpm_nv=("sd", "1.1.0"))
+        res = pf.probe(
+            _cfg(repo_url="https://download.copr.fedorainfracloud.org/results/"
+                          "o/p/opensuse-tumbleweed-x86_64", package="sd"),
+            runner=runner, fetcher=fetcher, log_dir=tmp_path)
+        assert res["ok"] is True, res["reasons"]
+        assert "pubkey" in calls
+        assert any(s["step"] == "pubkey" and s["ok"] for s in res["steps"])
+        imports = [c for c in runner.calls if c[:2] == ["rpm", "--import"]]
+        assert imports, "ключ COPR обязан импортироваться"
+        assert runner.calls.index(imports[0]) < next(
+            i for i, c in enumerate(runner.calls) if "refresh" in c)
+
+
+class TestProbeIsolatesTargetRepo:
+    def test_refresh_ignores_unsigned_repomd(self, tmp_path, monkeypatch):
+        fetcher, runner, _ = _green_env(tmp_path, monkeypatch)
+        pf.probe(_cfg(), runner=runner, fetcher=fetcher, log_dir=tmp_path)
+        refresh = next(c for c in runner.calls if "refresh" in c)
+        assert "--no-gpg-checks" in refresh, (
+            "COPR openSUSE без repomd.xml.asc: иначе refresh валит подпись")
+
+    def test_download_restricted_to_target_repo(self, tmp_path, monkeypatch):
+        fetcher, runner, _ = _green_env(tmp_path, monkeypatch)
+        res = pf.probe(_cfg(), runner=runner, fetcher=fetcher, log_dir=tmp_path)
+        assert res["ok"] is True, res["reasons"]
+        install = next(c for c in runner.calls if "install" in c)
+        i = install.index("--from")
+        assert install[i + 1] == "candy", (
+            "иначе имя может прийти из основного Tumbleweed и дать ложный mismatch")
