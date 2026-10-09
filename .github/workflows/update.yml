@@ -324,6 +324,82 @@ jobs:
           path: logs/
 
   # ---------------------------------------------------------------------------
+  # 1.5. Bot-auth preflight: publish имеет право НАЧИНАТЬСЯ только если токен,
+  #      которым бот откроет bot-PR, действительно валиден.
+  #
+  #      Зачем: отозванный CANDY_BOT_TOKEN обнаруживался НА reconcile — после
+  #      всех сборок — и вся волна собиралась впустую, а state/SPECS не
+  #      публиковались как ревьюируемые. Теперь токен проверяется ДО первого
+  #      submit'а в pilot/stable.
+  #
+  #      Fail-closed: пустой токен, отказ API или отказ git push --dry-run =
+  #      ПРОВАЛ, а не warning. Неопределённость авторизации = провал. Токен
+  #      никуда не печатается (маскируется перед выводом git).
+  # ---------------------------------------------------------------------------
+  bot-auth:
+    name: bot auth preflight (fail-fast)
+    needs: plan
+    # Как у package: только при успешном плане; пустая волна — штатный skip.
+    if: needs.plan.result == 'success' && needs.plan.outputs.packages != '[]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+
+      - name: Verify bot token can push candy-bot/* (fail-closed)
+        env:
+          # Ровно тот токен, которым шаг sync откроет bot-PR: проверяем его,
+          # а не запасной GITHUB_TOKEN, иначе проверка ничего не доказала бы.
+          BOT_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          TMP=$(mktemp)
+          trap 'rm -f "$TMP"' EXIT
+          fail() { echo "::error::bot-auth: $1 — publish запрещён" >&2; exit 1; }
+
+          [ -n "${BOT_TOKEN:-}" ] || fail "CANDY_BOT_TOKEN и GITHUB_TOKEN пусты"
+
+          # 1) Кто мы: /user обязан ответить login'ом. Любой отказ
+          #    (invalid/revoked/network) — провал, а не warning.
+          LOGIN=""
+          if curl -fsS --connect-timeout 10 --max-time 30 \
+                  -H "Authorization: Bearer $BOT_TOKEN" \
+                  -H "Accept: application/vnd.github+json" \
+                  "https://api.github.com/user" > "$TMP" 2>/dev/null; then
+            LOGIN=$(python3 -c 'import json,sys;print(json.load(sys.stdin).get("login",""))' \
+                    < "$TMP" 2>/dev/null || true)
+          fi
+          [ -n "$LOGIN" ] || fail "api.github.com/user не подтвердил токен (invalid/revoked/network)"
+          echo "bot-auth: api /user ok, login=$LOGIN"
+
+          # 2) Есть ли у токена push-права в этом репо: /repos/...permissions.push.
+          PUSH=""
+          if curl -fsS --connect-timeout 10 --max-time 30 \
+                  -H "Authorization: Bearer $BOT_TOKEN" \
+                  -H "Accept: application/vnd.github+json" \
+                  "https://api.github.com/repos/${GITHUB_REPOSITORY}" > "$TMP" 2>/dev/null; then
+            PUSH=$(python3 -c 'import json,sys;print(str(json.load(sys.stdin).get("permissions",{}).get("push",False)).lower())' \
+                   < "$TMP" 2>/dev/null || true)
+          fi
+          [ "$PUSH" = "true" ] || fail "токен не имеет push-прав в ${GITHUB_REPOSITORY} (получено: '${PUSH}')"
+          echo "bot-auth: permissions.push=true"
+
+          # 3) Единственный честный тест write-доступа — authenticated
+          #    git push --dry-run в разрешённый префикс candy-bot/*.
+          #    Вывод git маскируется, чтобы токен не попал в лог.
+          git remote set-url origin \
+            "https://x-access-token:${BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          set +e
+          git push --dry-run origin "HEAD:refs/heads/candy-bot/auth-probe" > "$TMP" 2>&1
+          RC=$?
+          set -e
+          python3 -c 'import os,sys;t=os.environ.get("BOT_TOKEN","");sys.stdout.write(sys.stdin.read().replace(t,"***"))' \
+            < "$TMP" >&2 || true
+          [ "$RC" -eq 0 ] || fail "git push --dry-run в candy-bot/* не прошёл (rc=${RC})"
+          echo "bot-auth: git push --dry-run ok (candy-bot/*)"
+
+  # ---------------------------------------------------------------------------
   # 2. Пакеты волны: независимые job'ы, максимум 3 одновременно.
   #
   #    Почему не один job: run 36971434567 отменили на 320-минутном
@@ -332,11 +408,16 @@ jobs:
   # ---------------------------------------------------------------------------
   package:
     name: publish ${{ matrix.pkg.name }}
-    needs: plan
+    # bot-auth обязателен: без зелёной проверки токена НИ ОДИН submit' идти
+    # не может (fail-fast до pilot/stable).
+    needs: [plan, bot-auth]
     # Гоняем только при УСПЕХЕ plan и непустой матрице. Раньше здесь не было
     # проверки needs.plan.result: упавший plan оставлял packages='' и строка
     # fromJSON('') падала с непонятной ошибкой вместо аккуратного skip.
-    if: needs.plan.result == 'success' && needs.plan.outputs.packages != '[]'
+    # bot-auth.result проверяется ЯВНО: условие с if не наследует неявный
+    # success() автоматически, а значит без этой проверки упавшая auth-проверка
+    # не остановила бы submit'ы.
+    if: needs.plan.result == 'success' && needs.bot-auth.result == 'success' && needs.plan.outputs.packages != '[]'
     runs-on: ubuntu-latest
     # Потолок 360 минут. Наблюдение за COPR живёт в --timeout-min 300, и
     # бюджет поделён между pilot и stable внутри одного пакета, поэтому после
