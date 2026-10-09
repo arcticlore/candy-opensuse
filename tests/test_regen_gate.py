@@ -1,6 +1,7 @@
 """test_regen_gate.py — тесты гейта «точный реген-дифф» (scope + spec-set + idempotency)."""
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -117,6 +118,48 @@ class TestRealRepoGate:
         assert "zenith" not in gate.specs_present(os.path.join(ROOT, "SPECS"))
 
 
+class TestIdempotencyDetectsStaleSpecAfterStateBump:
+    """Bug A: reconcile бампнул state, но не переписал SPECS/<name>.spec.
+
+    Раньше Generate-шаг писал спеку в stdout, а не в файл: state уезжал в ветку
+    с новой версией, а спека оставалась старой. Гейт обязан увидеть это как
+    idempotency-fail (before != mid), потому что --all меняет SPECS при прогоне.
+    """
+
+    def _repo(self, tmp_path, state_ver, spec_ver):
+        r = tmp_path / "repo"
+        (r / "SPECS").mkdir(parents=True)
+        (r / "state").mkdir()
+        (r / "state/state.json").write_text(json.dumps(
+            {"duf": {"ver": state_ver, "ts": 1}}))
+        (r / "pkgs.json").write_text(json.dumps(
+            {"packages": [{"name": "duf", "enabled": True}]}))
+        (r / "SPECS/duf.spec").write_text(
+            f"Name: duf\nVersion: {spec_ver}\n%changelog\n")
+        return r
+
+    def _regen_from_state(self, gate, monkeypatch):
+        """Правдоподобный gen_specs --all: spec берёт версию из state.json."""
+        def _run(root):
+            st = json.loads((Path(root) / "state/state.json").read_text())
+            for name, ent in st.items():
+                (Path(root) / "SPECS" / f"{name}.spec").write_text(
+                    f"Name: {name}\nVersion: {ent['ver']}\n%changelog\n")
+        monkeypatch.setattr(gate, "run_gen", _run)
+
+    def test_stale_spec_after_state_bump_fails(self, gate, tmp_path, monkeypatch):
+        r = self._repo(tmp_path, "2.0.0", "1.0.0")
+        self._regen_from_state(gate, monkeypatch)
+        monkeypatch.setattr(gate, "git_changed_paths", lambda root: [])
+        assert gate.main([str(r)]) == 1
+
+    def test_synced_spec_is_idempotent(self, gate, tmp_path, monkeypatch):
+        r = self._repo(tmp_path, "2.0.0", "2.0.0")
+        self._regen_from_state(gate, monkeypatch)
+        monkeypatch.setattr(gate, "git_changed_paths", lambda root: [])
+        assert gate.main([str(r)]) == 0
+
+
 class TestGitChangedPaths:
     def test_parses_porcelain_keeping_leading_space_paths(self, gate, tmp_path):
         """Регресс-проверка: strip() съедал первый символ пути."""
@@ -153,7 +196,8 @@ class TestGitChangedPaths:
                         "commit", "-qm", "base"], cwd=tmp_path, check=True)
         for d, name in (("logs", "wave-report.json"),
                         ("collected", "report-a.json"),
-                        ("plan-artifact", "plan.json")):
+                        ("plan-artifact", "plan.json"),
+                        ("preflight", "preflight.json")):
             (tmp_path / d).mkdir()
             (tmp_path / d / name).write_text("{}")
         assert gate.git_changed_paths(tmp_path) == [], \

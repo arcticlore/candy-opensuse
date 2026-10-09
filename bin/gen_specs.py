@@ -1017,6 +1017,50 @@ def render(name: str, ver: str, meta: dict[str, Package]) -> str:
     return "\n".join(parts)
 
 
+def validate_spec(content: str, name: str, ver: str) -> None:
+    """Проверить, что сгенерированный spec непустой и валидный.
+
+    Ошибка здесь = НЕ перезаписываем SPECS/<name>.spec. Пустой или чужой вывод
+    (например, если генератор случайно напишет диагностику в stdout) не должен
+    молча заменить боевую спеку.
+
+    Raises:
+        ValueError: spec пустой или не содержит Name/Version данного пакета.
+    """
+    if not content or not content.strip():
+        raise ValueError(f"пустой spec для {name}@{ver}")
+    if not re.search(rf"^Name:\s+{re.escape(name)}\s*$", content, re.MULTILINE):
+        raise ValueError(f"spec {name}@{ver} не содержит строку 'Name: {name}'")
+    if not re.search(rf"^Version:\s+{re.escape(ver)}\s*$", content, re.MULTILINE):
+        raise ValueError(f"spec {name}@{ver} не содержит строку 'Version: {ver}'")
+    if "%changelog" not in content:
+        raise ValueError(f"spec {name}@{ver} не содержит %changelog")
+
+
+def write_spec_atomic(name: str, ver: str, meta: dict[str, Package],
+                      out_path: str | Path) -> str:
+    """Атомарно записать spec одного пакета в out_path.
+
+    Порядок: рендер -> валидация -> запись во временный файл рядом с целью ->
+    os.replace (атомарная замена). Так либо SPECS/<name>.spec содержит ровно
+    новый spec, либо остаётся прежним — промежуточного/порванного состояния нет.
+    """
+    content = render(name, ver, meta)
+    validate_spec(content, name, ver)
+    out = Path(out_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_name(out.name + ".tmp")
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        if tmp.stat().st_size == 0:
+            raise ValueError(f"генерация {name}@{ver} дала пустой файл")
+        os.replace(tmp, out)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+    return str(out)
+
+
 def main() -> None:
     """Main entry point."""
     ap = argparse.ArgumentParser(description="RPM spec generator")
@@ -1024,6 +1068,9 @@ def main() -> None:
     ap.add_argument("version", nargs="?", default="0")
     ap.add_argument("--all", action="store_true", help="Generate all specs")
     ap.add_argument("--list", action="store_true", help="List package names")
+    ap.add_argument("--out", default=None,
+                    help="атомарно записать spec одного пакета в этот файл "
+                         "(вместо stdout); непустой/валидный вывод обязателен")
     a = ap.parse_args()
 
     root = Path(__file__).resolve().parent.parent
@@ -1060,6 +1107,15 @@ def main() -> None:
 
     if not a.name:
         ap.error("нужен NAME или --all/--list")
+
+    if a.out:
+        try:
+            write_spec_atomic(a.name, a.version, meta, a.out)
+        except (KeyError, ValueError, OSError) as e:
+            print(f"[FAIL] {a.name}@{a.version}: {e}", file=sys.stderr)
+            raise SystemExit(1)
+        print(f"generated {a.name}@{a.version} -> {a.out}", file=sys.stderr)
+        return
 
     sys.stdout.write(render(a.name, a.version, meta))
 

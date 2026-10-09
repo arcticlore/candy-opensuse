@@ -35,7 +35,11 @@ ALLOWED_EXACT = ("state/state.json", "pkgs.json")
 # state/state.json, SPECS/ и pkgs.json, поэтому мусор рабочего каталога не может
 # попасть в него. Без этого списка git status в reconcile всегда непуст, и
 # scope-проверка выдавала бы вечный fail на чужом мусоре.
-SCRATCH_PREFIXES = ("logs/", "collected/", "plan-artifact/")
+#
+# preflight/ — страховка: evidence теперь качается в $RUNNER_TEMP, но если он
+# когда-нибудь снова окажется в дереве, узкий точный префикс не даст ему ни
+# уронить scope-гейт, ни попасть в коммит (коммит берёт только разрешённые пути).
+SCRATCH_PREFIXES = ("logs/", "collected/", "plan-artifact/", "preflight/")
 
 
 def enabled_names(pkgs_path: str | Path) -> set[str]:
