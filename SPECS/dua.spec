@@ -1,5 +1,5 @@
 Name:           dua
-Version:        2.45.0
+Version:        2.45.1
 Release:        1%{?dist}
 Summary:        Анализ места на диске + интерактивное удаление
 
@@ -54,5 +54,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/dua
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 2.45.0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 2.45.1-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
