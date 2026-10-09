@@ -36,7 +36,9 @@ from pathlib import Path
 # Их нет в .gitignore, но и в коммит они попасть не могут — commit шаг делает
 # `git add -A -- state/state.json SPECS/ pkgs.json`. Без фильтра каждый reconcile
 # падал бы на "посторонний путь: collected/" и волна не смогла бы закоммитить.
-SCRATCH_PREFIXES = ("logs/", "collected/", "plan-artifact/")
+# preflight/ — узкая страховка: evidence качается в $RUNNER_TEMP, но даже если
+# он окажется в дереве, его нельзя ни закоммитить, ни счесть посторонним diff'ом.
+SCRATCH_PREFIXES = ("logs/", "collected/", "plan-artifact/", "preflight/")
 
 
 def _git(*args: str) -> str:

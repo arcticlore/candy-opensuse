@@ -517,7 +517,10 @@ class TestNoBlindRetryWiring:
         exec_step = next(s for s in wf["jobs"]["package"]["steps"]
                          if s.get("id") == "exec")
         env = exec_step.get("env", {})
-        assert env.get("WAVE_PREFLIGHT_JSON") == "preflight/preflight.json"
+        # Evidence лежит ВНЕ checkout ($RUNNER_TEMP): preflight/ в дереве ломал
+        # scope/sync-гейты reconcile как «посторонний путь».
+        assert env.get("WAVE_PREFLIGHT_JSON") == \
+            "${{ runner.temp }}/preflight/preflight.json"
         assert env.get("WAVE_BRAKE_FILE") == "logs/retry-brake.json"
 
     def test_package_downloads_preflight_evidence(self, wf):

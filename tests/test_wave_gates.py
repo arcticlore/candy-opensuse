@@ -325,7 +325,8 @@ class TestSyncGate:
         (repo / "SPECS/dysk.spec").write_text("Name: dysk\nVersion: 3.7.1\n")
         for d, name in (("logs", "wave-report.json"),
                         ("collected", "report-dysk.json"),
-                        ("plan-artifact", "plan.json")):
+                        ("plan-artifact", "plan.json"),
+                        ("preflight", "preflight.json")):
             (repo / d).mkdir()
             (repo / d / name).write_text("{}")
         cwd = os.getcwd()
@@ -487,3 +488,53 @@ class TestGateRunsBeforeCommitInWorkflow:
         assert "Download wave plan" in names
         dl = next(s for _, s in self._steps(wf) if s.get("name") == "Download wave plan")
         assert dl["with"]["name"] == "wave-plan-${{ github.run_number }}"
+
+    def test_generate_writes_spec_file_and_fails_closed(self, wf):
+        """Bug A: Generate обязан писать SPECS/<name>.spec, а не только stdout.
+
+        Иначе state уходит с новой версией, спека остаётся старой, и regen_gate
+        валится на idempotency (before != mid).
+        """
+        gen = next(s for _, s in self._steps(wf) if s.get("id") == "generate")
+        run = gen["run"]
+        assert '--out "SPECS/$name.spec"' in run, (
+            "генератор обязан писать файл спеки, а не печатать в stdout")
+        assert "::error::" in run and "exit 1" in run, (
+            "провал генерации обязан ронять reconcile ДО коммита")
+
+
+class TestPreflightEvidenceOutsideCheckout:
+    """Evidence не должен скачиваться в рабочее дерево.
+
+    untracked preflight/ в checkout ломал scope-гейт regen_gate и sync-гейт
+    («посторонний путь») и мог попасть в коммит. Качаем в $RUNNER_TEMP.
+    """
+
+    @staticmethod
+    def _download(wf, job):
+        hits = [s for s in wf["jobs"][job]["steps"]
+                if s.get("name") == "Download preflight evidence"]
+        assert len(hits) == 1, f"ожидался один download в {job}"
+        return hits[0]
+
+    def test_package_downloads_outside_checkout(self, wf):
+        assert self._download(wf, "package")["with"]["path"] == \
+            "${{ runner.temp }}/preflight"
+
+    def test_reconcile_downloads_outside_checkout(self, wf):
+        assert self._download(wf, "reconcile")["with"]["path"] == \
+            "${{ runner.temp }}/preflight"
+
+    def test_brake_step_reads_preflight_from_temp(self, wf):
+        upd = next(s for s in wf["jobs"]["reconcile"]["steps"]
+                   if s.get("name", "").startswith("Update retry-brake"))
+        assert upd["env"]["PREFLIGHT_JSON"] == \
+            "${{ runner.temp }}/preflight/preflight.json"
+
+    def test_no_step_writes_preflight_into_checkout(self, wf):
+        """Ни один шаг не качает evidence в относительный preflight/."""
+        for job, js in wf["jobs"].items():
+            for s in js.get("steps", []):
+                if s.get("name") == "Download preflight evidence":
+                    assert not str(s.get("with", {}).get("path", "")).startswith(
+                        "preflight"), f"{job}: evidence снова в дереве"

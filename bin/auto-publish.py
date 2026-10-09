@@ -315,6 +315,35 @@ def pilot_srpm_build_for(name: str, target: str,
     return None
 
 
+def recovery_pinned_target(name: str) -> str | None:
+    """Target из provenance-пина для recovery — единственный пин на имя.
+
+    Пин привязан к ТОЧНОЙ паре (имя, version). В recovery-режиме цель обязана
+    быть именно этой версией: иначе дневной refresh (commit-fallback date.hash)
+    сдвинул бы target, пин перестал бы совпадать и remediation собрала бы не тот
+    артефакт. Возвращает None, если для имени нет ровно одного пина.
+    """
+    vers = sorted({ver for (n, ver) in PILOT_SRPM_PROVENANCE if n == name})
+    return vers[0] if len(vers) == 1 else None
+
+
+def apply_recovery_pins(versions: dict[str, str],
+                        allow_names: list[str] | None) -> dict[str, str]:
+    """В recovery-режиме взять target из provenance-пина, а не из refresh дня."""
+    if not allow_names:
+        return versions
+    out = dict(versions)
+    for name in allow_names:
+        pin = recovery_pinned_target(name)
+        if pin is None:
+            continue
+        if out.get(name) and out[name] != pin:
+            print(f"  recovery-pin: {name} target {out[name]} -> {pin} "
+                  f"(точный provenance, не дневной refresh)")
+        out[name] = pin
+    return out
+
+
 def is_prioritizable(pkg: dict) -> bool:
     return str(pkg.get("enabled", "true")).lower() not in ("false", "0")
 
@@ -935,10 +964,11 @@ def render_markdown(wave: dict) -> str:
 
 def cmd_plan(args) -> int:
     pkgs = json.loads(Path("pkgs.json").read_text())
-    versions = load_state_versions()
-    chroots = list(pkgs["project"]["chroots"])
     allow_names = parse_allowlist(getattr(args, "recovery_allowlist", None),
                                   pkgs["packages"], getattr(args, "recovery", False))
+    # Recovery: цель берётся из точного provenance-пина, а не из refresh дня.
+    versions = apply_recovery_pins(load_state_versions(), allow_names)
+    chroots = list(pkgs["project"]["chroots"])
     enabled = apply_allowlist(pkgs["packages"], allow_names)
     if allow_names is not None:
         print(f"recovery-allowlist: {allow_names} ({len(enabled)} пакет(ов))")
@@ -1004,7 +1034,8 @@ def cmd_run(args) -> int:
     allow_names = parse_allowlist(getattr(args, "recovery_allowlist", None),
                                   pkgs, getattr(args, "recovery", False))
     pkgs = apply_allowlist(pkgs, allow_names)
-    versions = load_state_versions()
+    # Recovery: цель — из точного provenance-пина, а не из refresh дня.
+    versions = apply_recovery_pins(load_state_versions(), allow_names)
     chroots = list(json.loads(Path("pkgs.json").read_text())["project"]["chroots"])
     token = args.token or os.environ.get("COPR_API_TOKEN", "")
     copr_conf = args.copr_config or os.environ.get("COPR_CONFIG_PATH", "")

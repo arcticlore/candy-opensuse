@@ -368,12 +368,15 @@ jobs:
           restore-keys: |
             retry-brake-
 
+      # Evidence кладём ВНЕ checkout ($RUNNER_TEMP): иначе untracked preflight/
+      # попадает в рабочее дерево, и scope/sync-гейты reconcile видят его как
+      # «посторонний путь в sync-diff». Вне дерева commit его физически не видит.
       - name: Download preflight evidence
         continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: preflight-${{ github.run_number }}
-          path: preflight
+          path: ${{ runner.temp }}/preflight
 
       - name: Install toolchain
         run: |
@@ -426,7 +429,7 @@ jobs:
           WAVE_REPORT_PATH: logs/report-${{ matrix.pkg.name }}.json
           # fail-closed: run отказывается submit'ить при отсутствующем/красном
           # preflight-evidence или при взведённом mirror-brake.
-          WAVE_PREFLIGHT_JSON: preflight/preflight.json
+          WAVE_PREFLIGHT_JSON: ${{ runner.temp }}/preflight/preflight.json
           WAVE_BRAKE_FILE: logs/retry-brake.json
           PKG_TIMEOUT_MIN: "300"
         run: |
@@ -511,12 +514,14 @@ jobs:
           restore-keys: |
             retry-brake-
 
+      # Evidence — ВНЕ checkout (см. package-job): preflight/ в дереве ломал
+      # scope/sync-гейты как «посторонний путь».
       - name: Download preflight evidence
         continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: preflight-${{ github.run_number }}
-          path: preflight
+          path: ${{ runner.temp }}/preflight
 
       - name: Collect wave artifacts
         continue-on-error: true
@@ -605,10 +610,14 @@ jobs:
       # снимает; одинаковый mirror-failure копится и взводит общий armed-brake.
       - name: Update retry-brake (cooldown + mirror observation)
         if: always()
+        env:
+          # Evidence скачивается ВНЕ checkout ($RUNNER_TEMP), а не в preflight/,
+          # иначе untracked-каталог ломает scope/sync-гейты.
+          PREFLIGHT_JSON: ${{ runner.temp }}/preflight/preflight.json
         run: |
           set -u
           python3 - logs/retry-brake.json <<'PY'
-          import json, sys, time
+          import json, os, sys, time
           from pathlib import Path
           path = Path(sys.argv[1])
           data = {"version": 1, "armed": False, "mirror": {}, "packages": {}}
@@ -623,7 +632,8 @@ jobs:
           data.setdefault("packages", {})
           now = int(time.time())
 
-          pf = Path("preflight/preflight.json")
+          pf = Path(os.environ.get("PREFLIGHT_JSON",
+                                   "preflight/preflight.json"))
           if pf.exists():
               try:
                   p = json.loads(pf.read_text())
@@ -748,10 +758,17 @@ jobs:
               for name, ver in sorted(targets.items()):
                   fh.write(f"{name} {ver}\n")
           PY
+          # Атомарно: gen_specs рендерит во временный файл, проверяет непустоту и
+          # валидность (Name/Version/%changelog) и только потом os.replace'ом
+          # заменяет SPECS/$name.spec. Диагностика идёт в stderr и в spec не
+          # попадает; падение генерации роняет reconcile до коммита.
           while read -r name ver; do
             [ -z "$name" ] && continue
             echo "gen_specs: $name@$ver"
-            python3 bin/gen_specs.py "$name" "$ver"
+            if ! python3 bin/gen_specs.py "$name" "$ver" --out "SPECS/$name.spec"; then
+              echo "::error::генерация спеки $name@$ver провалена — коммит запрещён" >&2
+              exit 1
+            fi
           done < "$RUNNER_TEMP/sync-targets"
           echo "--- рабочее дерево после генерации (до коммита) ---"
           git status --porcelain -- state/state.json SPECS/ pkgs.json || true

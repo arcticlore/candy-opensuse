@@ -1249,6 +1249,36 @@ class TestProvenanceSeparation:
                                  tmp_path / "SRPMS", build_id=11064066)
 
 
+class TestRecoveryPinTarget:
+    """Recovery: target берётся из точного provenance-пина, не из refresh дня.
+
+    Дневной refresh (commit-fallback date.hash) мог сдвинуть цель на новую дату
+    при том же SHA. В recovery цель обязана совпасть с парой, под которую
+    закреплён SRPM, иначе remediation соберёт не тот артефакт.
+    """
+
+    def test_pinned_target_returned(self, mod):
+        assert mod.recovery_pinned_target("ghfetch") == "20261002.4b44a4f"
+        assert mod.recovery_pinned_target("pokemon-icat") == "20261002.54d4bc5"
+        assert mod.recovery_pinned_target("dua") == "2.45.1"
+        assert mod.recovery_pinned_target("dysk") == "3.7.1"
+
+    def test_unpinned_name_is_none(self, mod):
+        assert mod.recovery_pinned_target("gum") is None
+
+    def test_apply_overrides_today_refresh(self, mod):
+        versions = {"ghfetch": "20261009.4b44a4f", "gum": "2.0.2"}
+        out = mod.apply_recovery_pins(versions, ["ghfetch"])
+        assert out["ghfetch"] == "20261002.4b44a4f", \
+            "recovery обязан взять пин, а не дневной refresh"
+        assert out["gum"] == "2.0.2", "пакет вне allowlist не трогаем"
+
+    def test_noop_without_allowlist(self, mod):
+        versions = {"ghfetch": "20261009.4b44a4f"}
+        assert mod.apply_recovery_pins(versions, None) == versions
+        assert mod.apply_recovery_pins(versions, []) == versions
+
+
 class TestRecoveryAllowlist:
     """Recovery-allowlist: фильтр ДО плана, fail-closed на пустом/битом вводе."""
 

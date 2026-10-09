@@ -209,6 +209,59 @@ class TestGenSpecs:
         # body_cargo остаётся без Fedora-макросов
         assert "cargo build --release --offline" in spec
 
+    def test_out_flag_writes_valid_spec_atomically(self, pkgs_json, tmp_path,
+                                                   monkeypatch, capsys):
+        """Bug A: reconcile писал spec в stdout, а не в SPECS/<name>.spec.
+
+        state обновлялся, спека оставалась прежней -> regen_gate валился на
+        idempotency. CLI обязан писать файл, а spec — не утекать в stdout.
+        """
+        import gen_specs, re
+        pkg = next(p for p in pkgs_json["packages"] if p["name"] == "duf")
+        out = tmp_path / "SPECS" / "duf.spec"
+        monkeypatch.setattr(sys, "argv",
+                            ["gen_specs.py", "duf", "9.9.9", "--out", str(out)])
+        gen_specs.main()
+        captured = capsys.readouterr()
+        spec = out.read_text()
+        assert re.search(r"^Name:\s+duf\s*$", spec, re.MULTILINE)
+        assert re.search(r"^Version:\s+9\.9\.9\s*$", spec, re.MULTILINE)
+        assert "%changelog" in spec
+        assert captured.out.strip() == "", "spec не должен утекать в stdout"
+        assert not (out.with_name(out.name + ".tmp")).exists(), "остался .tmp"
+
+    def test_out_matches_render(self, tmp_path):
+        """--out пишет ровно то, что отдал бы render()."""
+        import gen_specs
+        from pathlib import Path
+        meta = gen_specs.make_meta(
+            gen_specs.load_pkgs(Path(ROOT) / "pkgs.json"))
+        out = tmp_path / "duf.spec"
+        gen_specs.write_spec_atomic("duf", "1.2.3", meta, out)
+        assert out.read_text() == gen_specs.render("duf", "1.2.3", meta)
+
+    def test_validate_rejects_bad_specs(self):
+        import gen_specs
+        for bad in ("", "   \n", "garbage\n", "Name: duf\nVersion: 1.0\n",
+                    "Name: other\nVersion: 1.0\n%changelog\n"):
+            with pytest.raises(ValueError):
+                gen_specs.validate_spec(bad, "duf", "1.0")
+
+    def test_atomic_write_keeps_old_file_on_invalid_render(self, tmp_path,
+                                                           monkeypatch):
+        """Провал генерации НЕ перезаписывает боевую спеку и не оставляет .tmp."""
+        import gen_specs
+        from pathlib import Path
+        meta = gen_specs.make_meta(
+            gen_specs.load_pkgs(Path(ROOT) / "pkgs.json"))
+        out = tmp_path / "duf.spec"
+        out.write_text("OLD-SPEC\n")
+        monkeypatch.setattr(gen_specs, "render", lambda *a, **k: "")
+        with pytest.raises(ValueError):
+            gen_specs.write_spec_atomic("duf", "1.2.3", meta, out)
+        assert out.read_text() == "OLD-SPEC\n"
+        assert not (out.with_name(out.name + ".tmp")).exists()
+
     def test_license_files_autoextract_to_files(self, sample_pkg):
         """Тело без %license (c-make) получает список записей после %files"""
         import gen_specs

@@ -12,6 +12,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -224,6 +225,39 @@ def submit_build(srpm_path: str, dry_run: bool = False) -> bool:
     return False
 
 
+# Commit-fallback версия: "20261002.4b44a4f" (дата UTC + первые 7 символов SHA).
+_COMMIT_DATE_VER = re.compile(r"^(\d{8})\.([0-9a-fA-F]{7,})$")
+
+
+def same_commit_target(old: str, new: str) -> bool:
+    """True, если old и new — date.hash ОДНОГО И ТОГО ЖЕ commit.
+
+    api_ver.sh для репозиториев без тегов генерирует версию как
+    ``date -u +%Y%m%d`` + ``.`` + короткий SHA. Дата в ней — это день, когда
+    версия ВПЕРВЫЕ увидена, а не свойство апстрима. Поэтому неизменившийся hash
+    обязан сохранять прежнюю цель: иначе каждая календарная дата рождала бы
+    «новую» версию при неизменном апстриме и запускала ежедневные пересборки.
+    """
+    mo, mn = _COMMIT_DATE_VER.match(old or ""), _COMMIT_DATE_VER.match(new or "")
+    if not mo or not mn:
+        return False
+    return mo.group(2).lower() == mn.group(2).lower()
+
+
+def decide_version_update(old: str, new: str) -> tuple[bool, str]:
+    """Решить, менять ли цель: (changed, target).
+
+    * ``old == new``                 -> не меняем;
+    * date.hash с тем же hash        -> не меняем (дата цель не двигает);
+    * иначе (новый hash/релиз)       -> цель = new.
+    """
+    if old == new:
+        return False, old
+    if same_commit_target(old, new):
+        return False, old
+    return True, new
+
+
 def cmd_versions():
     """Обновить целевые версии (state.json) из апстрима — «штука» про обновления.
 
@@ -262,12 +296,16 @@ def cmd_versions():
             failed += 1
             continue
         old = st.get(name, {}).get("ver", "") if isinstance(st.get(name), dict) else ""
-        if old == up:
+        changed, target = decide_version_update(old, up)
+        if not changed:
             same += 1
+            if old != up:
+                print(f"  [SAME] {name}: {old} == {up} "
+                      f"(commit hash не изменился — дата цель не двигает)")
             continue
-        st.setdefault(name, {})["ver"] = up
+        st.setdefault(name, {})["ver"] = target
         st[name]["ts"] = time.time()
-        print(f"  [NEW]  {name}: {old or '(нет цели)'} -> {up}")
+        print(f"  [NEW]  {name}: {old or '(нет цели)'} -> {target}")
         updated += 1
     st_path.write_text(json.dumps(st, ensure_ascii=False, indent=2))
     print(f"\nЦели обновлены: {updated}, без изменений: {same}, не проверилось: {failed}")
