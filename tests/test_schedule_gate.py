@@ -9,6 +9,7 @@ scheduled-run вечно висел в `waiting` (конвейер мёртв). 
   * emergency brake (CANDY_PUBLISH_PAUSE) остаётся ПЕРВЫМ.
 """
 import os
+import re
 
 import pytest
 
@@ -604,3 +605,81 @@ class TestReconcileHasRealGitRepo:
                    if s.get("id") == "generate")
         assert "preflight_only" in gen.get("if", ""), (
             "preflight-only не должен трогать state/SPECS")
+
+
+class TestBotAuthPreflight:
+    """Fail-fast проверка бот-токена ДО первого submit'а.
+
+    Регрессия: отозванный/просроченный CANDY_BOT_TOKEN обнаруживался только на
+    шаге reconcile — ПОСЛЕ всех сборок. Волна собиралась впустую, а state/SPECS
+    не публиковались как ревьюируемые. Теперь токен проверяется до pilot/stable.
+    """
+
+    @staticmethod
+    def _auth_step(wf):
+        return next(s for s in wf["jobs"]["bot-auth"]["steps"]
+                    if "Verify bot token" in s.get("name", ""))
+
+    def test_auth_job_exists_and_gates_package(self, wf):
+        assert "bot-auth" in wf["jobs"], "job-проверки токена нет"
+        assert "bot-auth" in wf["jobs"]["package"]["needs"], (
+            "package обязан зависеть от bot-auth, иначе submit уйдёт без проверки")
+
+    def test_auth_failure_blocks_package_explicitly(self, wf):
+        """Условие if обязано ЯВНО проверять bot-auth.result.
+
+        Кондитион с if не наследует неявный success() — без явной проверки
+        упавшая auth-проверка не остановила бы submit'ы.
+        """
+        guard = wf["jobs"]["package"].get("if", "")
+        assert "needs.bot-auth.result == 'success'" in guard, (
+            "без явной проверки bot-auth.result провал не блокирует publish")
+        assert "needs.plan.result == 'success'" in guard
+        assert "!= '[]'" in guard
+
+    def test_auth_only_runs_for_a_real_wave(self, wf):
+        """preflight-only и пустая волна не требуют push-токена."""
+        guard = wf["jobs"]["bot-auth"].get("if", "")
+        assert "needs.plan.result == 'success'" in guard
+        assert "!= '[]'" in guard
+
+    def test_auth_checks_the_token_that_opens_the_pr(self, wf):
+        env = self._auth_step(wf).get("env", {})
+        assert env.get("BOT_TOKEN") == \
+            "${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}", (
+                "проверять нужно ТОТ токен, которым шаг sync откроет bot-PR, "
+                "а не запасной GITHUB_TOKEN")
+
+    def test_push_dry_run_into_candy_bot_ref(self, wf):
+        run = self._auth_step(wf)["run"]
+        assert "git push --dry-run" in run, (
+            "authenticated dry-run — единственный честный тест write-доступа")
+        assert "candy-bot/" in run, "цель — только разрешённый префикс candy-bot/"
+
+    def test_auth_failures_are_fatal_not_warnings(self, wf):
+        step = self._auth_step(wf)
+        run = step["run"]
+        assert not step.get("continue-on-error"), (
+            "неопределённость авторизации = провал, а не warning")
+        assert not wf["jobs"]["bot-auth"].get("continue-on-error")
+        assert "fail()" in run and "exit 1" in run
+        assert "::error::" in run
+        # каждый неопределённый исход (нет токена, API молчит, push отказал)
+        assert "CANDY_BOT_TOKEN" in run
+        assert "api.github.com/user" in run
+        assert "permissions.push" in run
+
+    def test_token_is_never_printed(self, wf):
+        run = self._auth_step(wf)["run"]
+        for line in run.splitlines():
+            stripped = line.strip()
+            assert not re.search(r"\b(echo|printf|cat|tee)\b[^\n]*BOT_TOKEN",
+                                 stripped), f"токен уходит в лог: {stripped}"
+        assert "set -x" not in run, "set -x раскрыл бы токен"
+        # вывод git прогоняется через маску перед печатью
+        assert '.replace(t,"***")' in run
+
+    def test_auth_step_is_not_behind_preflight_only(self, wf):
+        job = wf["jobs"]["bot-auth"]
+        step_names = [s.get("name", "") for s in job["steps"]]
+        assert any("Verify bot token" in n for n in step_names)
