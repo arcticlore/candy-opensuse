@@ -1,0 +1,157 @@
+name: bot auth preflight
+
+# Отдельная fail-fast проверка бот-токена — БЕЗ публикации и БЕЗ recovery.
+#
+# Зачем отдельный workflow: CANDY_PUBLISH_PAUSE=true блокирует plan в update.yml,
+# а job bot-auth внутри update.yml требует успешного плана непустой волны. То
+# есть саму проверку токена нельзя прогнать, не запустив publish — проверка
+# оказалась заперта ровно тем, что она должна защищать. Этот workflow проверяет
+# ТОТ ЖЕ секрет (CANDY_BOT_TOKEN) отдельно, по триггеру workflow_dispatch:
+#
+#   1. GET /user                → HTTP 200 + ожидаемый login
+#   2. GET /repos/<owner/repo>  → HTTP 200 + доступ к репозиторию
+#   3. permissions.push         → true
+#   4. authenticated git push --dry-run в уникальный candy-bot/auth-preflight-*
+#   5. git ls-remote            → настоящая ветка НЕ появилась
+#
+# Никаких COPR/OBS сборок, настоящих веток и PR. Любой неопределённый исход =
+# провал (exit 1); CANDY_PUBLISH_PAUSE остаётся true.
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_login:
+        description: "Ожидаемый login из GET /user (пусто — достаточно непустого)"
+        required: false
+        default: "arcticlore"
+
+# Минимальные права: самому workflow write не нужен, capability даёт PAT.
+permissions:
+  contents: read
+
+concurrency:
+  group: auth-preflight
+  cancel-in-progress: false
+
+jobs:
+  bot-auth:
+    name: fail-fast bot token preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          # Никаких вшитых credentials: ровно на время dry-run remote получает
+          # токен, и тут же его теряет.
+          persist-credentials: false
+
+      - name: Verify CANDY_BOT_TOKEN (fail-closed)
+        id: verify
+        env:
+          BOT_TOKEN: ${{ secrets.CANDY_BOT_TOKEN }}
+          EXPECTED_LOGIN: ${{ inputs.expected_login }}
+          PROBE_REF: candy-bot/auth-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -eu
+          set +x                       # трейсинг выключен явно — токен не должен утечь
+
+          API="https://api.github.com"
+          REPO="${GITHUB_REPOSITORY:-arcticlore/candy-opensuse}"
+          TMPD="$(mktemp -d)"
+          REPORT="$TMPD/report.md"
+          printf '### bot auth preflight (run %s)\n\n| check | result |\n|---|---|\n' \
+                 "${GITHUB_RUN_ID:-local}" > "$REPORT"
+          trap 'cat "$REPORT" >> "${GITHUB_STEP_SUMMARY:-/dev/null}" 2>/dev/null || true; rm -rf "$TMPD"' EXIT
+
+          # Маскирование: значение токена и credential-URL не должны попасть в лог
+          # даже внутри сообщений git/curl.
+          mask() { python3 -c "import os,re,sys;t=os.environ.get('BOT_TOKEN','');s=sys.stdin.read();s=(s.replace(t,'***') if t else s);sys.stdout.write(re.sub(r'https://[^/\s]*@github\.com','https://***@github.com',s))"; }
+
+          fail() { echo "::error::auth-preflight: $1"; echo "result=fail" >> "${GITHUB_OUTPUT:-/dev/null}"; printf '| result | **FAIL** |\n' >> "$REPORT"; exit 1; }
+
+          [ -n "${BOT_TOKEN:-}" ] || fail "CANDY_BOT_TOKEN пуст"
+          [ -n "${PROBE_REF:-}" ] || fail "PROBE_REF пуст"
+
+          # --- 1. GET /user -------------------------------------------------
+          set +e
+          CODE_USER="$(curl -sS --connect-timeout 10 --max-time 30 \
+              -o "$TMPD/user.json" -w '%{http_code}' \
+              -H "Authorization: Bearer $BOT_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$API/user" 2>"$TMPD/curl1.err")"
+          RC_USER=$?
+          set -e
+          CODE_USER="${CODE_USER:-000}"
+          mask < "$TMPD/curl1.err" >&2 || true
+          echo "GET /user -> HTTP $CODE_USER (curl rc=$RC_USER)"
+          [ "$CODE_USER" = "200" ] || fail "GET /user вернул HTTP $CODE_USER"
+          printf '| GET /user | HTTP %s |\n' "$CODE_USER" >> "$REPORT"
+
+          LOGIN="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("login",""))' \
+                   "$TMPD/user.json" 2>/dev/null || true)"
+          [ -n "$LOGIN" ] || fail "GET /user не вернул login"
+          if [ -n "${EXPECTED_LOGIN:-}" ] && [ "$LOGIN" != "$EXPECTED_LOGIN" ]; then
+            fail "login '$LOGIN' не совпал с ожидаемым '$EXPECTED_LOGIN'"
+          fi
+          echo "login -> $LOGIN"
+          printf '| login | %s |\n' "$LOGIN" >> "$REPORT"
+
+          # --- 2/3. GET /repos/<repo> + permissions.push ---------------------
+          set +e
+          CODE_REPO="$(curl -sS --connect-timeout 10 --max-time 30 \
+              -o "$TMPD/repo.json" -w '%{http_code}' \
+              -H "Authorization: Bearer $BOT_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$API/repos/$REPO" 2>"$TMPD/curl2.err")"
+          RC_REPO=$?
+          set -e
+          CODE_REPO="${CODE_REPO:-000}"
+          mask < "$TMPD/curl2.err" >&2 || true
+          echo "GET /repos/$REPO -> HTTP $CODE_REPO (curl rc=$RC_REPO)"
+          [ "$CODE_REPO" = "200" ] || fail "GET /repos/$REPO вернул HTTP $CODE_REPO"
+          printf '| GET /repos/%s | HTTP %s |\n' "$REPO" "$CODE_REPO" >> "$REPORT"
+
+          PERMS="$(python3 -c 'import json,sys;print(json.dumps(json.load(open(sys.argv[1])).get("permissions",{}) or {},sort_keys=True))' \
+                   "$TMPD/repo.json" 2>/dev/null || echo '{}')"
+          PUSH="$(python3 -c 'import json,sys;print(str(json.load(open(sys.argv[1])).get("permissions",{}).get("push",False)).lower())' \
+                  "$TMPD/repo.json" 2>/dev/null || echo 'false')"
+          echo "permissions -> $PERMS"
+          printf '| repo permissions | `%s` |\n' "$PERMS" >> "$REPORT"
+          [ "$PUSH" = "true" ] || fail "permissions.push=$PUSH (ожидалось true)"
+          echo "permissions.push -> true"
+          printf '| permissions.push | true |\n' >> "$REPORT"
+
+          # --- 4. authenticated git push --dry-run в уникальный ref -----------
+          git remote set-url origin "https://x-access-token:${BOT_TOKEN}@github.com/${REPO}.git"
+          set +e
+          git push --dry-run origin "HEAD:refs/heads/${PROBE_REF}" > "$TMPD/push.out" 2>&1
+          RC_PUSH=$?
+          set -e
+          mask < "$TMPD/push.out" >&2 || true
+          echo "git push --dry-run refs/heads/${PROBE_REF} -> rc=$RC_PUSH"
+          [ "$RC_PUSH" -eq 0 ] || fail "git push --dry-run в ${PROBE_REF} не прошёл (rc=$RC_PUSH)"
+          printf '| git push --dry-run (`%s`) | ok (rc=0) |\n' "$PROBE_REF" >> "$REPORT"
+
+          # --- 5. git ls-remote: ветка НЕ должна появиться --------------------
+          set +e
+          FOUND="$(git ls-remote --heads origin "refs/heads/${PROBE_REF}" 2>"$TMPD/lsr.err")"
+          RC_LSR=$?
+          set -e
+          mask < "$TMPD/lsr.err" >&2 || true
+          echo "git ls-remote refs/heads/${PROBE_REF} -> rc=$RC_LSR, bytes=${#FOUND}"
+          [ "$RC_LSR" -eq 0 ] || fail "git ls-remote не прошёл (rc=$RC_LSR)"
+          [ -z "$FOUND" ] || fail "ветка ${PROBE_REF} реально существует — dry-run создал её"
+          printf '| git ls-remote | rc=0, ветка не создана |\n' >> "$REPORT"
+
+          # Никаких следов даже от чужих запусков.
+          STRAY="$(git ls-remote --heads origin 'refs/heads/candy-bot/auth-preflight-*' 2>/dev/null || true)"
+          [ -z "$STRAY" ] || fail "найдены существующие ветки candy-bot/auth-preflight-*"
+
+          # --- cleanup: креды уходят из remote --------------------------------
+          git remote set-url origin "https://github.com/${REPO}.git"
+
+          printf '| result | **PASS** |\n' >> "$REPORT"
+          echo "result=pass" >> "${GITHUB_OUTPUT:-/dev/null}"
+          echo "AUTH PREFLIGHT PASS"
