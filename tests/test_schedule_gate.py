@@ -348,21 +348,34 @@ class TestWaveShape:
             "генерация обязана оставить дерево грязным для гейта")
 
     def test_auto_merge_is_gated_on_regen_result(self, wf):
-        """Автомердж включается только после прохождения гейта."""
+        """Автомердж — только после гейта, dispatch и зелёных checks.
+
+        Порядок обязателен: sync -> dispatch validate -> wait required checks
+        на exact head SHA -> auto-merge. Включение автомерджа раньше
+        доказанных checks означало бы мерж по не проверенному SHA.
+        """
         steps = wf["jobs"]["reconcile"]["steps"]
+        names = [s.get("name", "") for s in steps]
         merge_i = next(i for i, s in enumerate(steps)
                        if s.get("name", "").startswith("Enable auto-merge"))
         gate_i = next(i for i, s in enumerate(steps)
                       if "regen gate" in s.get("name", ""))
         assert merge_i > gate_i, "автомердж раньше гейта — бессмыслен"
+        for needed in ("Dispatch validate.yml", "Wait required checks"):
+            idx = next(i for i, n in enumerate(names) if needed in n)
+            assert gate_i < idx < merge_i, f"{needed} обязан идти между гейтом и merge"
         merge_step = steps[merge_i]
         env = merge_step.get("env", {})
         assert env.get("PR_URL") == "${{ steps.sync.outputs.pr_url }}", (
             "автомердж обязан привязываться к PR, созданному шагом sync")
-        assert env.get("REGEN_GATE") == "${{ steps.regen-check.outputs.regen_gate }}"
         guard = merge_step.get("if", "")
         assert "steps.sync.outputs.pr_url" in guard, (
             "если sync не создал PR, шаг должен пропуститься, а не «успеть»")
+        assert "steps.regen-check.outputs.regen_gate == \'ok\'" in guard or \
+            "steps.regen-check.outputs.regen_gate == 'ok'" in guard, (
+                "автомердж обязан требовать пройденный regen-gate")
+        assert "steps.wait-checks.outcome == 'success'" in guard, (
+            "автомердж без доказанных checks — прямой обход required проверок")
 
     def test_deferred_is_not_success(self, wf):
         steps = wf["jobs"]["package"]["steps"]
@@ -608,17 +621,19 @@ class TestReconcileHasRealGitRepo:
 
 
 class TestBotAuthPreflight:
-    """Fail-fast проверка бот-токена ДО первого submit'а.
+    """Fail-fast проверка токена ДО первого submit'а.
 
-    Регрессия: отозванный/просроченный CANDY_BOT_TOKEN обнаруживался только на
-    шаге reconcile — ПОСЛЕ всех сборок. Волна собиралась впустую, а state/SPECS
-    не публиковались как ревьюируемые. Теперь токен проверяется до pilot/stable.
+    Регрессия: отозванный/просроченный личный PAT обнаруживался только на шаге
+    reconcile — ПОСЛЕ всех сборок. Волна собиралась впустую, а state/SPECS не
+    публиковались как ревьюируемые. Теперь capability проверяется до pilot/stable,
+    и проверяется ВСТРОЕННЫЙ run-scoped GITHUB_TOKEN — личный PAT больше не
+    читается ни одним workflow.
     """
 
     @staticmethod
     def _auth_step(wf):
         return next(s for s in wf["jobs"]["bot-auth"]["steps"]
-                    if "Verify bot token" in s.get("name", ""))
+                    if "Verify run-scoped GITHUB_TOKEN" in s.get("name", ""))
 
     def test_auth_job_exists_and_gates_package(self, wf):
         assert "bot-auth" in wf["jobs"], "job-проверки токена нет"
@@ -645,10 +660,9 @@ class TestBotAuthPreflight:
 
     def test_auth_checks_the_token_that_opens_the_pr(self, wf):
         env = self._auth_step(wf).get("env", {})
-        assert env.get("BOT_TOKEN") == \
-            "${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}", (
-                "проверять нужно ТОТ токен, которым шаг sync откроет bot-PR, "
-                "а не запасной GITHUB_TOKEN")
+        assert env.get("BOT_TOKEN") == "${{ secrets.GITHUB_TOKEN }}", (
+            "проверять нужно ТОТ встроенный токен, которым шаг sync запушит "
+            "ветку и откроет bot-PR")
 
     def test_push_dry_run_into_candy_bot_ref(self, wf):
         run = self._auth_step(wf)["run"]
@@ -665,9 +679,10 @@ class TestBotAuthPreflight:
         assert "fail()" in run and "exit 1" in run
         assert "::error::" in run
         # каждый неопределённый исход (нет токена, API молчит, push отказал)
-        assert "CANDY_BOT_TOKEN" in run
-        assert "api.github.com/user" in run
+        assert "GITHUB_TOKEN пуст" in run
+        assert "GET /repos/" in run
         assert "permissions.push" in run
+        assert "ls-remote" in run, "dry-run обязан подтверждаться отсутствием ветки"
 
     def test_token_is_never_printed(self, wf):
         run = self._auth_step(wf)["run"]
@@ -682,4 +697,4 @@ class TestBotAuthPreflight:
     def test_auth_step_is_not_behind_preflight_only(self, wf):
         job = wf["jobs"]["bot-auth"]
         step_names = [s.get("name", "") for s in job["steps"]]
-        assert any("Verify bot token" in n for n in step_names)
+        assert any("Verify run-scoped GITHUB_TOKEN" in n for n in step_names)

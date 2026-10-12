@@ -1,0 +1,15 @@
+{
+  "_comment": "Required status checks of the protected branch master. Single source of truth for the reconcile merge gate: GITHUB_TOKEN cannot read branch protection (no `administration` scope), so the list is mirrored here and asserted by tests/test_github_token_only.py.",
+  "_source": "GET /repos/arcticlore/candy-opensuse/branches/master/protection (contexts+strict from .required_status_checks, enforce_admins from .enforce_admins.enabled)",
+  "_stale_check": "bin/merge_gate.py и tests/test_github_token_only.py не умеют сверять это с живой защитой ветки, поэтому при смене protection действуй в этом порядке: обнови файл здесь -> прогони pytest -> коммит.",
+  "strict": true,
+  "enforce_admins": true,
+  "contexts": [
+    "decommission",
+    "drift-check",
+    "tests",
+    "opensuse-specs (tumbleweed, registry.opensuse.org/opensuse/tumbleweed)",
+    "opensuse-specs (leap-16.0, opensuse/leap:16.0)",
+    "waiters"
+  ]
+}
