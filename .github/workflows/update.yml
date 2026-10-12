@@ -44,9 +44,17 @@ on:
         required: false
         default: ""
 
+# Встроенный run-scoped GITHUB_TOKEN — единственный токен волны: push
+# candy-bot/*, PR, dispatch validate и auto-merge идут на github.token.
+# Личный PAT репозитория больше не читается НИ ОДНИМ workflow.
+#   contents: write        — push ветки candy-bot/* (никогда в master);
+#   pull-requests: write   — gh pr create / gh pr merge --auto;
+#   actions: write         — явный dispatch validate.yml (GITHUB_TOKEN-PR сам CI не триггерит);
+#   issues: write          — шаг Auto-issue (существующая функциональность).
 permissions:
   contents: write
   pull-requests: write
+  actions: write
   issues: write
 
 # Акторам, кому разрешён ручной полный ребилд (--force).
@@ -325,16 +333,18 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # 1.5. Bot-auth preflight: publish имеет право НАЧИНАТЬСЯ только если токен,
-  #      которым бот откроет bot-PR, действительно валиден.
+  #      которым бот запушит candy-bot/* и откроет bot-PR, реально работает.
   #
-  #      Зачем: отозванный CANDY_BOT_TOKEN обнаруживался НА reconcile — после
-  #      всех сборок — и вся волна собиралась впустую, а state/SPECS не
-  #      публиковались как ревьюируемые. Теперь токен проверяется ДО первого
-  #      submit'а в pilot/stable.
+  #      Единственный токен — встроенный run-scoped GITHUB_TOKEN (github.token).
+  #      Личный PAT больше не читается ни одним workflow.
   #
-  #      Fail-closed: пустой токен, отказ API или отказ git push --dry-run =
-  #      ПРОВАЛ, а не warning. Неопределённость авторизации = провал. Токен
-  #      никуда не печатается (маскируется перед выводом git).
+  #      Fail-closed: пустой токен, отказ GET /repo, permissions.push != true
+  #      или отказ git push --dry-run = ПРОВАЛ, а не warning. Токен никуда не
+  #      печатается (маскируется перед выводом git).
+  #
+  #      /user намеренно НЕ проверяется: GITHUB_TOKEN — installation token,
+  #      а capability, которая нужна волне, это push в репозиторий; она
+  #      достоверно измеряется через GET /repo + dry-run.
   # ---------------------------------------------------------------------------
   bot-auth:
     name: bot auth preflight (fail-fast)
@@ -347,47 +357,39 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Verify bot token can push candy-bot/* (fail-closed)
+      - name: Verify run-scoped GITHUB_TOKEN can push candy-bot/* (fail-closed)
         env:
-          # Ровно тот токен, которым шаг sync откроет bot-PR: проверяем его,
-          # а не запасной GITHUB_TOKEN, иначе проверка ничего не доказала бы.
-          BOT_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          # Ровно тот токен, которым шаг sync запушит ветку и откроет bot-PR.
+          BOT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -eu
+          set +x
           TMP=$(mktemp)
           trap 'rm -f "$TMP"' EXIT
           fail() { echo "::error::bot-auth: $1 — publish запрещён" >&2; exit 1; }
 
-          [ -n "${BOT_TOKEN:-}" ] || fail "CANDY_BOT_TOKEN и GITHUB_TOKEN пусты"
+          [ -n "${BOT_TOKEN:-}" ] || fail "GITHUB_TOKEN пуст"
 
-          # 1) Кто мы: /user обязан ответить login'ом. Любой отказ
-          #    (invalid/revoked/network) — провал, а не warning.
-          LOGIN=""
-          if curl -fsS --connect-timeout 10 --max-time 30 \
+          # 1) Репозиторий доступен и токен видит свои права.
+          set +e
+          CODE=$(curl -sS --connect-timeout 10 --max-time 30 -o "$TMP" -w '%{http_code}' \
                   -H "Authorization: Bearer $BOT_TOKEN" \
                   -H "Accept: application/vnd.github+json" \
-                  "https://api.github.com/user" > "$TMP" 2>/dev/null; then
-            LOGIN=$(python3 -c 'import json,sys;print(json.load(sys.stdin).get("login",""))' \
-                    < "$TMP" 2>/dev/null || true)
-          fi
-          [ -n "$LOGIN" ] || fail "api.github.com/user не подтвердил токен (invalid/revoked/network)"
-          echo "bot-auth: api /user ok, login=$LOGIN"
+                  "https://api.github.com/repos/${GITHUB_REPOSITORY}" 2>/dev/null)
+          RC=$?
+          set -e
+          CODE="${CODE:-000}"
+          echo "bot-auth: GET /repos/${GITHUB_REPOSITORY} -> HTTP $CODE (curl rc=$RC)"
+          [ "$CODE" = "200" ] || fail "GET репозитория вернул HTTP ${CODE}"
 
-          # 2) Есть ли у токена push-права в этом репо: /repos/...permissions.push.
-          PUSH=""
-          if curl -fsS --connect-timeout 10 --max-time 30 \
-                  -H "Authorization: Bearer $BOT_TOKEN" \
-                  -H "Accept: application/vnd.github+json" \
-                  "https://api.github.com/repos/${GITHUB_REPOSITORY}" > "$TMP" 2>/dev/null; then
-            PUSH=$(python3 -c 'import json,sys;print(str(json.load(sys.stdin).get("permissions",{}).get("push",False)).lower())' \
-                   < "$TMP" 2>/dev/null || true)
-          fi
+          PUSH=$(python3 -c 'import json,sys;print(str(json.load(sys.stdin).get("permissions",{}).get("push",False)).lower())' \
+                 < "$TMP" 2>/dev/null || echo false)
           [ "$PUSH" = "true" ] || fail "токен не имеет push-прав в ${GITHUB_REPOSITORY} (получено: '${PUSH}')"
           echo "bot-auth: permissions.push=true"
 
-          # 3) Единственный честный тест write-доступа — authenticated
+          # 2) Единственный честный тест write-доступа — authenticated
           #    git push --dry-run в разрешённый префикс candy-bot/*.
-          #    Вывод git маскируется, чтобы токен не попал в лог.
+          #    Никакая ветка при этом не создаётся: dry-run + контроль ls-remote.
           git remote set-url origin \
             "https://x-access-token:${BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           set +e
@@ -398,6 +400,16 @@ jobs:
             < "$TMP" >&2 || true
           [ "$RC" -eq 0 ] || fail "git push --dry-run в candy-bot/* не прошёл (rc=${RC})"
           echo "bot-auth: git push --dry-run ok (candy-bot/*)"
+
+          set +e
+          FOUND=$(git ls-remote --heads origin "refs/heads/candy-bot/auth-probe" 2>/dev/null)
+          RC_LSR=$?
+          set -e
+          [ "$RC_LSR" -eq 0 ] || fail "git ls-remote не прошёл (rc=$RC_LSR)"
+          [ -z "$FOUND" ] || fail "ветка candy-bot/auth-probe реально существует — dry-run создал её"
+          echo "bot-auth: dry-run не создал ветку"
+
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
 
   # ---------------------------------------------------------------------------
   # 2. Пакеты волны: независимые job'ы, максимум 3 одновременно.
@@ -564,7 +576,10 @@ jobs:
     needs: [plan, package]
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Бюджет вырос вместе с scope: сюда вошли явный dispatch validate,
+    # ожидание required checks на exact head SHA и ожидание фактического
+    # merged verdict (по 20 мин каждый) поверх прежних гейтов.
+    timeout-minutes: 90
     container: fedora:44
     steps:
       # git в fedora:44 нет: без него actions/checkout скачивает tarball БЕЗ
@@ -799,7 +814,7 @@ jobs:
         id: generate
         if: ${{ inputs.preflight_only != true }}
         env:
-          GH_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           git config --global --add safe.directory '*' 2>/dev/null || true
@@ -885,13 +900,20 @@ jobs:
           echo "regen_gate=$REGEN_GATE" >> "$GITHUB_OUTPUT"
           echo "sync_gate=$SYNC_GATE" >> "$GITHUB_OUTPUT"
 
+      # Всё, что ниже — цепочка fail-closed. Каждый шаг требует успеха
+      # предыдущего (без always()), поэтому отказ dispatch/перехода checks
+      # останавливает auto-merge, а не «пропускается» молча.
+      #
+      # push candy-bot/* → PR → ЯВНЫЙ dispatch checks → wait required checks
+      # на exact head SHA → auto-merge → ожидание фактического merged verdict.
       - name: Commit state/SPECS and open PR (only after gate passed)
         id: sync
         if: success() && steps.generate.outputs.promoted != '' && steps.regen-check.outputs.regen_gate == 'ok' && steps.regen-check.outputs.sync_gate == 'ok'
         env:
-          GH_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          set +x
           if [ -z "$(git status --porcelain -- state/state.json SPECS/ pkgs.json)" ]; then
             echo "No changes to commit"
             exit 0
@@ -905,56 +927,128 @@ jobs:
           # одну и ту же ветку, поэтому дубль bot-PR создать нельзя.
           CONTENT_HASH=$(git diff --cached --binary -- state/state.json SPECS/ pkgs.json | sha256sum | cut -c1-12)
           BRANCH="candy-bot/publish-${CONTENT_HASH}"
-          EXISTING=$(gh pr list --state open --head "$BRANCH" --json url -q '.[0].url' 2>/dev/null || true)
-          if [ -n "$EXISTING" ]; then
-            echo "идентичный bot-PR уже открыт: $EXISTING — дубль не создаём"
-            echo "pr_url=$EXISTING" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          # ПРЯМОЙ PUSH В MASTER ЗАПРЕЩЁН: писать можно только в candy-bot/*.
+          case "$BRANCH" in
+            candy-bot/*) ;;
+            *)
+              echo "::error::sync: ветка '$BRANCH' вне префикса candy-bot/* — push запрещён" >&2
+              exit 1 ;;
+          esac
           REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git remote add origin "$REMOTE_URL" 2>/dev/null || git remote set-url origin "$REMOTE_URL"
-          git commit -qm "publish sync: state targets + specs after wave ${GITHUB_RUN_ID}"
-          if ! git push origin "HEAD:refs/heads/$BRANCH"; then
-            echo "ERROR: git push failed for $BRANCH" >&2
-            exit 1
-          fi
-          if PR_URL=$(gh pr create --base master --head "$BRANCH" \
-               --title "publish sync: wave targets regenerated" \
-               --body "Autogenerated sync of state.json/SPECS for packages actually published (exact 4/4). Reviewable PR — no direct push to master." 2>&1); then
-            echo "PR created: $PR_URL"
-            echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          EXISTING=$(gh pr list --state open --head "$BRANCH" --json url -q '.[0].url // empty' 2>/dev/null || true)
+          if [ -n "$EXISTING" ]; then
+            echo "идентичный bot-PR уже открыт: $EXISTING — дубль не создаём"
+            PR_URL="$EXISTING"
           else
-            # Ветка уже запушена, но PR не создан: публикация state/SPECS не
-            # состоялась как РЕВЬЮИРУЕМАЯ. Раньше это было warning-only, и
-            # reconcile оставался зелёным при фактически неопубликованном sync.
-            echo "::error::gh pr create не удался — ветка $BRANCH запушена, но PR не создан; state/SPECS не опубликованы как ревьюируемые"
-            echo "$PR_URL" >&2
-            echo "FAIL: PR create failed для $BRANCH" >&2
+            git commit -qm "publish sync: state targets + specs after wave ${GITHUB_RUN_ID}"
+            if ! git push origin "HEAD:refs/heads/$BRANCH"; then
+              echo "ERROR: git push failed for $BRANCH" >&2
+              exit 1
+            fi
+            if PR_URL=$(gh pr create --base master --head "$BRANCH" \
+                 --title "publish sync: wave targets regenerated" \
+                 --body "Autogenerated sync of state.json/SPECS for packages actually published (exact 4/4). Reviewable PR — no direct push to master." 2>&1); then
+              echo "PR created: $PR_URL"
+            else
+              # Ветка уже запушена, но PR не создан: публикация state/SPECS не
+              # состоялась как РЕВЬЮИРУЕМАЯ. Раньше это было warning-only, и
+              # reconcile оставался зелёным при фактически неопубликованном sync.
+              echo "::error::gh pr create не удался — ветка $BRANCH запушена, но PR не создан; state/SPECS не опубликованы как ревьюируемые"
+              echo "$PR_URL" >&2
+              echo "FAIL: PR create failed для $BRANCH" >&2
+              exit 1
+            fi
+          fi
+          # Точная голова PR и фактическая голова ветки обязаны совпасть:
+          # дальше все checks привязываются именно к этой SHA.
+          HEAD_SHA=$(gh pr view "$PR_URL" --json headRefOid -q '.headRefOid' 2>/dev/null || true)
+          if [ -z "$HEAD_SHA" ]; then
+            echo "::error::headRefOid не получен для $PR_URL" >&2
             exit 1
           fi
-
-
-      # Автомердж включается только когда гейт прошёл уже по СГЕНЕРИРОВАННОМУ
-      # diff'у. Если шага sync не было (нет promoted), pr_url пуст — шаг
-      # пропускается, а не «успешно» молчит.
-      - name: Enable auto-merge only when regen gate passed
-        if: always() && steps.sync.outputs.pr_url != ''
-        env:
-          GH_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
-          PR_URL: ${{ steps.sync.outputs.pr_url }}
-          REGEN_GATE: ${{ steps.regen-check.outputs.regen_gate }}
-        run: |
-          set -uo pipefail
-          if [ "$REGEN_GATE" != "ok" ]; then
-            echo "INFO: auto-merge отключён (regen-gate не пройден по сгенерированному diff)"
-            exit 0
+          REMOTE_HEAD=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1 || true)
+          if [ "$REMOTE_HEAD" != "$HEAD_SHA" ]; then
+            echo "::error::голова ветки $BRANCH ($REMOTE_HEAD) != head PR ($HEAD_SHA)" >&2
+            exit 1
           fi
+          echo "bot-PR: $PR_URL head=$HEAD_SHA branch=$BRANCH"
+          {
+            echo "pr_url=$PR_URL"
+            echo "head_sha=$HEAD_SHA"
+            echo "branch=$BRANCH"
+          } >> "$GITHUB_OUTPUT"
+
+      # GITHUB_TOKEN-PR само не триггерит CI (события от GITHUB_TOKEN не
+      # порождают workflow runs). Поэтому checks запускаем ЯВНО на точной
+      # bot-ветке — и merge_gate сверяет её голову с head PR до и после.
+      - name: Dispatch validate.yml on exact bot branch
+        id: dispatch-validate
+        if: steps.sync.outputs.pr_url != '' && steps.regen-check.outputs.regen_gate == 'ok'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.sync.outputs.branch }}
+          HEAD_SHA: ${{ steps.sync.outputs.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          set +x
+          python3 bin/merge_gate.py dispatch \
+            --workflow validate.yml \
+            --branch "$BRANCH" \
+            --head-sha "$HEAD_SHA" \
+            --repo "$REPO"
+
+      # Доказательство до auto-merge: каждый required check существует,
+      # прошёл и относится ИМЕННО к head SHA PR. Отсутствие/таймаут/отказ = fail.
+      - name: Wait required checks on exact PR head SHA
+        id: wait-checks
+        if: steps.sync.outputs.pr_url != '' && steps.dispatch-validate.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ steps.sync.outputs.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          set +x
+          python3 bin/merge_gate.py wait-checks \
+            --repo "$REPO" \
+            --head-sha "$HEAD_SHA" \
+            --checks-file ci/required-checks.json \
+            --timeout-min 20
+
+      # Автомердж включается ТОЛЬКО после доказанных checks и только когда
+      # гейт прошёл по СГЕНЕРИРОВАННОМУ diff'у.
+      - name: Enable auto-merge after green checks
+        id: auto-merge
+        if: steps.sync.outputs.pr_url != '' && steps.wait-checks.outcome == 'success' && steps.regen-check.outputs.regen_gate == 'ok'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ steps.sync.outputs.pr_url }}
+        run: |
+          set -euo pipefail
+          set +x
           # Падение включения auto-merge обязано быть красным: иначе PR молча
           # остаётся открытым и не мержится, а run притворяется успешным.
           if ! gh pr merge "$PR_URL" --auto --squash --delete-branch; then
             echo "::error::auto-merge не включён для $PR_URL — PR не сольётся автоматически" >&2
             exit 1
           fi
+
+      # Мерж обязан быть НАБЛЮДЁН: «auto-merge включён» ≠ «слито». Любой
+      # closed-unmerged или таймаут = fail closed, а не зелёный run.
+      - name: Observe until merged
+        id: observe-merged
+        if: steps.auto-merge.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ steps.sync.outputs.pr_url }}
+        run: |
+          set -euo pipefail
+          set +x
+          python3 bin/merge_gate.py observe-merged \
+            --pr-url "$PR_URL" \
+            --timeout-min 20
 
       - name: Telegram notification
         if: always()

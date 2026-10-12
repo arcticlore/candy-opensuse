@@ -4,9 +4,14 @@ name: logrotate
 on:
   workflow_dispatch:
 
+# Единственный токен — встроенный run-scoped GITHUB_TOKEN.
+#   contents: write      — push ветки candy-bot/* (прямой push в master запрещён);
+#   pull-requests: write — gh pr create;
+#   actions: write       — явный dispatch validate.yml (PR от GITHUB_TOKEN сам CI не триггерит).
 permissions:
   contents: write
   pull-requests: write
+  actions: write
 
 jobs:
   rotate:
@@ -25,11 +30,9 @@ jobs:
 
       - name: Commit via bot branch + reviewable PR (no direct push to master)
         env:
-          # CANDY_BOT_TOKEN (PAT): события, аутентифицированные PAT, могут
-          # триггерить downstream CI. GITHUB_TOKEN fallback: рекурсивные workflow
-          # runs могут подавляться, required checks могут остаться absent/pending
-          # — путь fail-closed, но не автоматизированный.
-          GH_TOKEN: ${{ secrets.CANDY_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          # Личный PAT больше не читается ни одним workflow: единственный
+          # токен — встроенный run-scoped GITHUB_TOKEN.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           git config user.name  "candy-bot"
@@ -40,6 +43,13 @@ jobs:
             git checkout -qb "$BRANCH" 2>/dev/null || git switch -c "$BRANCH"
             git commit -qm "logrotate"
             git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            # Прямой push в master запрещён — писать можно только в candy-bot/*.
+            case "$BRANCH" in
+              candy-bot/*) ;;
+              *)
+                echo "ERROR: '$BRANCH' вне префикса candy-bot/* — push запрещён" >&2
+                exit 1 ;;
+            esac
             if ! git push origin "HEAD:$BRANCH"; then
               echo "ERROR: git push failed for $BRANCH" >&2
               exit 1
@@ -50,4 +60,12 @@ jobs:
               echo "ERROR: gh pr create failed for $BRANCH" >&2
               exit 1
             fi
+            # GITHUB_TOKEN-PR сам CI не триггерит — dispatch validate ЯВНО
+            # на точной bot-ветке, привязанный к head SHA только что созданного PR.
+            HEAD_SHA=$(git rev-parse HEAD)
+            python3 bin/merge_gate.py dispatch \
+              --workflow validate.yml \
+              --branch "$BRANCH" \
+              --head-sha "$HEAD_SHA" \
+              --repo "$GITHUB_REPOSITORY"
           fi

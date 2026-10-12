@@ -477,11 +477,24 @@ class TestGateRunsBeforeCommitInWorkflow:
         # ветка ошибки должна содержать ::error:: и выходить с ненулевым кодом
         tail = run.split("gh pr create", 1)[1]
         assert "else" in tail
+        # Вырезаем ровно тело else-ветки (до её закрывающего `fi`), а не хвост
+        # скрипта: публикация pr_url/head_sha идёт ПОСЛЕ этого fi и достижима
+        # только при успехе gh pr create.
         else_branch = tail.split("else", 1)[1]
+        assert "\n  fi" in else_branch, (
+            "структура if/else изменилась — тест больше не вырезает else-ветку")
+        else_branch = else_branch.split("\n  fi", 1)[0]
         assert "::error::" in else_branch, "падение PR обязано быть видно в логе"
         assert "exit 1" in else_branch, (
             "state publication обязана завершаться красным при ошибке PR")
-        assert "pr_url=" not in else_branch
+        assert "pr_url=" not in else_branch, (
+            "при ошибке создания PR нельзя публиковать pr_url — иначе "
+            "auto-merge попытается слить несуществующий PR")
+        # Публикация pr_url/head_sha живёт после закрывающего `fi`, то есть
+        # достижима только из успешной ветки.
+        after_fi = run.split("\n  fi", 1)
+        assert len(after_fi) == 2 and 'echo "pr_url=' in after_fi[1], (
+            "публикация pr_url обязана идти после успешного создания PR")
 
     def test_plan_artifact_is_downloaded(self, wf):
         names = [s.get("name", "") for _, s in self._steps(wf)]
