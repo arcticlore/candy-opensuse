@@ -9,17 +9,23 @@ name: bot auth preflight
 # она заперта ровно тем, что должна защищать. Этот workflow проверяет тот же
 # встроенный токен отдельно, по триггеру workflow_dispatch:
 #
-#   1. GET /repos/<owner/repo> → HTTP 200 + доступ к репозиторию
-#   2. permissions.push        → true
-#   3. git push --dry-run      → уникальный candy-bot/auth-preflight-*
-#   4. git ls-remote           → настоящая ветка НЕ появилась
+#   1. GET /repos/<owner/repo>  → HTTP 200 (токен жив, репозиторий доступен)
+#   2. POST /git/blobs          → HTTP 201 (contents: write доказан ЗАПИСЬЮ)
+#   3. git push --dry-run       → уникальный candy-bot/auth-preflight-*
+#   4. git ls-remote            → настоящая ветка НЕ появилась
 #
 # Никаких COPR/OBS сборок, настоящих веток, PR и dispatch'ей. Любой
 # неопределённый исход = провал (exit 1); CANDY_PUBLISH_PAUSE остаётся true.
 #
-# Личный PAT не читается: токен только github.token, а его repository
-# capability измеряется напрямую (permissions.push + dry-run). GET /user
-# намеренно не используется — это installation token, а не пользовательский.
+# Личный PAT не читается: токен только github.token. GET /user намеренно не
+# используется — это installation token, а не пользовательский.
+#
+# Почему гейт НЕ на /repos.permissions.push: там GitHub возвращает «права
+# ПОЛЬЗОВАТЕЛЯ на репозиторий», а у installation-токена пользователя нет —
+# при contents: write он всё равно отдаёт false. На PAT такой гейт работал,
+# на GITHUB_TOKEN он дал бы ложный отказ. Право на запись меряется записью:
+# POST /git/blobs создаёт осиротевший объект в git-БД (ни веток, ни коммитов,
+# ни файлов в дереве) и требует ровно того же contents: write, что и push.
 
 on:
   workflow_dispatch:
@@ -88,16 +94,41 @@ jobs:
           [ "$CODE_REPO" = "200" ] || fail "GET /repos/$REPO вернул HTTP $CODE_REPO"
           printf '| GET /repos/%s | HTTP %s |\n' "$REPO" "$CODE_REPO" >> "$REPORT"
 
-          # --- 2. permissions.push ---------------------------------------------
+          # --- 2. contents:write: доказываем САМОЙ ЗАПИСЬЮ --------------------
+          # /repos.permissions — «права ПОЛЬЗОВАТЕЛЯ на репозиторий». У
+          # installation-токена (GITHUB_TOKEN) пользователя нет, и GitHub
+          # возвращает false даже при contents: write — на PAT это работало,
+          # здесь дало бы ложный отказ. Поэтому гейт не на JSON-поле, а на
+          # реальную запись в git-БД.
           PERMS="$(python3 -c 'import json,sys;print(json.dumps(json.load(open(sys.argv[1])).get("permissions",{}) or {},sort_keys=True))' \
                    "$TMPD/repo.json" 2>/dev/null || echo '{}')"
           PUSH="$(python3 -c 'import json,sys;print(str(json.load(open(sys.argv[1])).get("permissions",{}).get("push",False)).lower())' \
                   "$TMPD/repo.json" 2>/dev/null || echo 'false')"
-          echo "permissions -> $PERMS"
-          printf '| repo permissions | `%s` |\n' "$PERMS" >> "$REPORT"
-          [ "$PUSH" = "true" ] || fail "permissions.push=$PUSH (ожидалось true)"
-          echo "permissions.push -> true"
-          printf '| permissions.push | true |\n' >> "$REPORT"
+          echo "/repos.permissions.push=$PUSH (информационно: у installation-токена всегда false, не гейт)"
+          printf '| repo permissions (info, не гейт) | `%s` |\n' "$PERMS" >> "$REPORT"
+
+          BLOB_REQ="$(python3 -c 'import base64,json,sys;print(json.dumps({"content":base64.b64encode(sys.argv[1].encode()).decode(),"encoding":"base64"}))' \
+                      "auth-preflight ${GITHUB_RUN_ID:-local}")"
+          set +e
+          CODE_BLOB="$(curl -sS --connect-timeout 10 --max-time 30 \
+              -o "$TMPD/blob.json" -w '%{http_code}' \
+              -X POST \
+              -H "Authorization: Bearer $BOT_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              --data "$BLOB_REQ" \
+              "$API/repos/$REPO/git/blobs" 2>"$TMPD/curl2.err")"
+          RC_BLOB=$?
+          set -e
+          CODE_BLOB="${CODE_BLOB:-000}"
+          mask < "$TMPD/curl2.err" >&2 || true
+          echo "POST /repos/$REPO/git/blobs -> HTTP $CODE_BLOB (curl rc=$RC_BLOB)"
+          [ "$CODE_BLOB" = "201" ] || fail "запись в git-БД отклонена (HTTP $CODE_BLOB) — contents:write не подтверждён"
+          BLOB_SHA="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("sha",""))' \
+                      "$TMPD/blob.json" 2>/dev/null || echo '')"
+          [ -n "$BLOB_SHA" ] || fail "POST /git/blobs вернул HTTP $CODE_BLOB без sha"
+          echo "contents:write -> ok (blob ${BLOB_SHA:0:12})"
+          printf '| contents:write (POST /git/blobs) | HTTP %s, sha `%s` |\n' "$CODE_BLOB" "$BLOB_SHA" >> "$REPORT"
 
           # --- 3. authenticated git push --dry-run в уникальный ref ------------
           git remote set-url origin "https://x-access-token:${BOT_TOKEN}@github.com/${REPO}.git"

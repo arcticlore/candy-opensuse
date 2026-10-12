@@ -386,6 +386,24 @@ class TestFailClosedApi:
         assert not any(j.get("continue-on-error") for j in wf["jobs"].values()), (
             f"{name}: continue-on-error отключает fail-closed")
 
+    # Гейт write-доступа. /repos.permissions отражает права ПОЛЬЗОВАТЕЛЯ на
+    # репозиторий, а у GITHUB_TOKEN (installation token) пользователя нет:
+    # GitHub возвращает false даже при contents: write. На PAT такой гейт
+    # работал, на встроенном токене он ронял бы КАЖДУЮ волну сам на себе.
+    @pytest.mark.parametrize("name", ["update.yml", "auth-preflight.yml"])
+    def test_write_access_is_proven_by_a_write(self, name):
+        wf = load(os.path.join(WF_DIR, name))
+        steps = (wf["jobs"].get("bot-auth") or {}).get("steps", [])
+        body = "\n".join(s.get("run", "") for s in steps)
+        assert "/git/blobs" in body, (
+            f"{name}: нет пробника contents:write через реальную запись")
+        assert 'CODE_BLOB" = "201"' in body, (
+            f"{name}: отказ записи в git-БД обязан ронять проверку токена")
+        assert '[ "$PUSH" = "true" ]' not in body, (
+            f"{name}: гейт на /repos.permissions.push ложен для GITHUB_TOKEN")
+        assert 'fail "permissions.push=' not in body, (
+            f"{name}: /repos.permissions.push не может быть гейтом")
+
 
 # ---------------------------------------------------------------------------
 # 7. Запрет прямого push в master

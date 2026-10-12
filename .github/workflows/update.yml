@@ -338,13 +338,17 @@ jobs:
   #      Единственный токен — встроенный run-scoped GITHUB_TOKEN (github.token).
   #      Личный PAT больше не читается ни одним workflow.
   #
-  #      Fail-closed: пустой токен, отказ GET /repo, permissions.push != true
+  #      Fail-closed: пустой токен, отказ GET /repo, отказ записи в git-БД
   #      или отказ git push --dry-run = ПРОВАЛ, а не warning. Токен никуда не
   #      печатается (маскируется перед выводом git).
   #
-  #      /user намеренно НЕ проверяется: GITHUB_TOKEN — installation token,
-  #      а capability, которая нужна волне, это push в репозиторий; она
-  #      достоверно измеряется через GET /repo + dry-run.
+  #      /user намеренно НЕ проверяется: GITHUB_TOKEN — installation token.
+  #      Так же отброшен гейт на /repos.permissions.push: это «права
+  #      ПОЛЬЗОВАТЕЛЯ на репозиторий», у installation-токена пользователя нет
+  #      и GitHub честно возвращает false даже при contents: write. С переходом
+  #      с PAT на GITHUB_TOKEN такой гейт ронял бы каждую волну. Capability,
+  #      которая нужна волне, меряется напрямую: запись в git-БД (POST
+  #      /git/blobs, требует ровно contents: write, что и push) + dry-run.
   # ---------------------------------------------------------------------------
   bot-auth:
     name: bot auth preflight (fail-fast)
@@ -370,7 +374,7 @@ jobs:
 
           [ -n "${BOT_TOKEN:-}" ] || fail "GITHUB_TOKEN пуст"
 
-          # 1) Репозиторий доступен и токен видит свои права.
+          # 1) Репозиторий доступен токену (200 = токен жив и не отозван).
           set +e
           CODE=$(curl -sS --connect-timeout 10 --max-time 30 -o "$TMP" -w '%{http_code}' \
                   -H "Authorization: Bearer $BOT_TOKEN" \
@@ -384,12 +388,36 @@ jobs:
 
           PUSH=$(python3 -c 'import json,sys;print(str(json.load(sys.stdin).get("permissions",{}).get("push",False)).lower())' \
                  < "$TMP" 2>/dev/null || echo false)
-          [ "$PUSH" = "true" ] || fail "токен не имеет push-прав в ${GITHUB_REPOSITORY} (получено: '${PUSH}')"
-          echo "bot-auth: permissions.push=true"
+          echo "bot-auth: /repos.permissions.push=${PUSH} (информационно, не гейт: у installation-токена всегда false)"
 
-          # 2) Единственный честный тест write-доступа — authenticated
-          #    git push --dry-run в разрешённый префикс candy-bot/*.
-          #    Никакая ветка при этом не создаётся: dry-run + контроль ls-remote.
+          # 2) Авторитетный пробник записи. /repos.permissions — «права
+          #    ПОЛЬЗОВАТЕЛЯ на репозиторий»: у GITHUB_TOKEN пользователя нет и
+          #    GitHub отдаёт всё false при contents: write. Меряем саму запись:
+          #    POST /git/blobs создаёт осиротевший объект в git-БД (ни веток,
+          #    ни коммитов, ни файлов в дереве) и требует ровно того же
+          #    contents: write, что и push.
+          set +e
+          BLOB_REQ=$(python3 -c 'import base64,json,sys;print(json.dumps({"content":base64.b64encode(sys.argv[1].encode()).decode(),"encoding":"base64"}))' \
+                     "bot-auth ${GITHUB_RUN_ID:-0}")
+          CODE_BLOB=$(curl -sS --connect-timeout 10 --max-time 30 -o "$TMP" -w '%{http_code}' \
+                  -X POST \
+                  -H "Authorization: Bearer $BOT_TOKEN" \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "X-GitHub-Api-Version: 2022-11-28" \
+                  --data "$BLOB_REQ" \
+                  "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/blobs" 2>/dev/null)
+          RC_BLOB=$?
+          set -e
+          CODE_BLOB="${CODE_BLOB:-000}"
+          echo "bot-auth: POST /git/blobs -> HTTP $CODE_BLOB (curl rc=$RC_BLOB)"
+          [ "$CODE_BLOB" = "201" ] || fail "запись в git-БД отклонена (HTTP ${CODE_BLOB}) — contents:write не подтверждён"
+          BLOB_SHA=$(python3 -c 'import json,sys;print(json.load(sys.stdin).get("sha",""))' < "$TMP" 2>/dev/null || true)
+          [ -n "$BLOB_SHA" ] || fail "POST /git/blobs не вернул sha"
+          echo "bot-auth: contents:write ok (blob ${BLOB_SHA:0:12})"
+
+          # 3) authenticated git push --dry-run в разрешённый префикс
+          #    candy-bot/* — реальный git-путь с этим токеном. Никакая ветка
+          #    при этом не создаётся: dry-run + контроль ls-remote.
           git remote set-url origin \
             "https://x-access-token:${BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           set +e
@@ -401,6 +429,7 @@ jobs:
           [ "$RC" -eq 0 ] || fail "git push --dry-run в candy-bot/* не прошёл (rc=${RC})"
           echo "bot-auth: git push --dry-run ok (candy-bot/*)"
 
+          # 4) ветки быть не должно: dry-run обязан быть без побочных эффектов.
           set +e
           FOUND=$(git ls-remote --heads origin "refs/heads/candy-bot/auth-probe" 2>/dev/null)
           RC_LSR=$?
