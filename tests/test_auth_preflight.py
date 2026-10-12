@@ -10,7 +10,8 @@
 Обязательства регрессий:
   * триггер только workflow_dispatch (никаких schedule/PR → никаких сборок);
   * токен — только встроенный run-scoped GITHUB_TOKEN, никакого личного PAT;
-  * проверки: GET /repo, permissions.push, git push --dry-run, отсутствие ветки;
+  * проверки: GET /repo, запись в git-БД (contents:write), git push --dry-run,
+    отсутствие ветки;
   * fail-closed: никакого continue-on-error, есть exit 1;
   * токен и credential-URL не утекают в лог (нет set -x, нет echo токена);
   * никаких COPR/OBS/сборочных вызовов, dispatch'ей и создания веток/PR.
@@ -71,9 +72,14 @@ class TestWorkflowIsIsolatedFromPublish:
         assert "actions" not in wf["permissions"]
 
     def test_no_copr_or_obs_calls(self, run):
-        for needle in ("copr", "COPR", "obs ", "OBS", "auto-publish", "auto_publish",
+        for needle in ("copr", "COPR", "auto-publish", "auto_publish",
                        "builds/", "--recovery", "workflow_run", "workflow", "pr create"):
             assert needle not in run, f"в preflight не должно быть `{needle}`"
+        # OBS — только как внешний вызов. Подстрока-проверка здесь врала бы:
+        # "git/blobs" содержит "obs" (b-l-<o>-<b>-<s>), и гейт на запись в
+        # git-БД попадал бы под запрет. Поэтому — границы слова.
+        assert re.search(r"\bobs\b", run, re.I) is None, (
+            "в preflight не должно быть вызовов OBS")
 
     def test_no_real_branch_or_pr_creation(self, run):
         """Только dry-run; ls-remote подтверждает отсутствие ветки."""
@@ -92,9 +98,31 @@ class TestChecksPresent:
         assert re.search(r'CODE_REPO\s*=\s*"\$\{CODE_REPO:-000\}"', run), (
             "HTTP-код /repos обязан попадать в отчёт даже при транспортной ошибке")
 
-    def test_check2_permissions_push(self, run):
-        assert '"permissions"' in run
-        assert 'fail "permissions.push=' in run, "push != true обязан ронять запуск"
+    def test_check2_contents_write_is_proven_by_write(self, run):
+        """Гейт — реальная запись в git-БД, а не JSON-поле /repos.permissions.
+
+        /repos.permissions отражает права ПОЛЬЗОВАТЕЛЯ на репозиторий; у
+        installation-токена (GITHUB_TOKEN) пользователя нет и GitHub возвращает
+        false даже при contents: write. Гейт на это поле ронял бы каждый запуск.
+        """
+        assert "POST /repos/$REPO/git/blobs" in run, "нет пробника записи"
+        assert '[ "$CODE_BLOB" = "201" ] || fail' in run, (
+            "отказ записи в git-БД обязан ронять запуск")
+        assert "permissions.push" in run, (
+            "информационный вывод /repos.permissions оставлен для отчёта")
+
+    def test_permissions_push_is_not_a_gate(self, run):
+        """Регрессия: на installation-токен /repos.permissions.push всегда false.
+
+        Этот гейт работал на PAT и ронял бы каждый запуск на GITHUB_TOKEN —
+        ровно та ловушка перехода с личного токена на встроенный.
+        """
+        assert 'fail "permissions.push=' not in run, (
+            "/repos.permissions.push не может быть гейтом для GITHUB_TOKEN")
+        assert '[ "$PUSH" = "true" ]' not in run
+        assert '"permissions".get("push"' not in run.replace("\n", "")
+        # а сам гейт обязан быть на 201 от POST /git/blobs
+        assert 'CODE_BLOB" = "201"' in run
 
     def test_check3_push_dry_run_unique_ref(self, wf, verify):
         run = verify["run"]
@@ -113,7 +141,7 @@ class TestChecksPresent:
 
     def test_all_checks_are_sequenced(self, run):
         order = [run.index(n) for n in ('"$API/repos/$REPO"',
-                                        '[ "$PUSH" = "true" ]',
+                                        'CODE_BLOB" = "201"',
                                         "git push --dry-run",
                                         "git ls-remote")]
         assert order == sorted(order), "проверки должны идти в заданном порядке"
