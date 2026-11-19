@@ -81,6 +81,43 @@ def test_pause_brake_is_first(scope_run):
         "emergency brake обязан срабатывать раньше любых проверок ребилда")
 
 
+def test_pause_is_explicit_deferred_empty_plan(wf, scope_run):
+    """Intentional pause is visible, green/no-op, and cannot reach planning."""
+    assert 'echo "paused=true" >> "$GITHUB_OUTPUT"' in scope_run
+    assert '"packages":[],"plan_size":0' in scope_run
+    assert "Publication paused" in scope_run
+    assert "exit 0" in scope_run
+
+    plan = wf["jobs"]["plan"]
+    build = next(s for s in plan["steps"] if s.get("id") == "plan")
+    assert build.get("if") == "steps.scope.outputs.paused != 'true'", (
+        "real plan must be skipped while the emergency brake is enabled")
+    for step in plan["steps"]:
+        if step.get("name") in {
+            "Install toolchain", "Configure COPR",
+            "Generate specs (из pkgs.json; идемпотентный)",
+            "Refresh upstream versions (цели волны из state.json)",
+            "Restore SRPM cache", "Build wave plan (без submit)",
+        }:
+            assert step.get("if") == "steps.scope.outputs.paused != 'true'", step
+
+
+def test_pause_disposition_reaches_reconcile_and_finalize(wf):
+    merge = next(s for s in wf["jobs"]["reconcile"]["steps"]
+                 if s.get("id") == "merge")
+    assert merge.get("env", {}).get("PLAN_PAUSED") == \
+        "${{ needs.plan.outputs.paused }}"
+    assert "publication paused" in merge["run"]
+    assert '"disposition":"paused"' in merge["run"]
+
+    final = next(s for s in wf["jobs"]["finalize"]["steps"]
+                 if "Fail unless" in s.get("name", ""))
+    assert final.get("env", {}).get("PLAN_PAUSED") == \
+        "${{ needs.plan.outputs.paused }}"
+    assert "Publication deferred" in final["run"]
+    assert "exit 0" in final["run"]
+
+
 def test_force_forbidden_outside_workflow_dispatch(scope_run):
     assert "EVENT_NAME" in scope_run, "событие должно попадать в scope-check"
     assert '!= "workflow_dispatch"' in scope_run, (
@@ -263,6 +300,7 @@ class TestWaveShape:
         assert outputs["packages"] == "${{ steps.plan.outputs.packages || '[]' }}", (
             "без fallback matrix получит '' и упадёт на fromJSON")
         assert outputs["plan_size"] == "${{ steps.plan.outputs.plan_size || '0' }}"
+        assert outputs["paused"] == "${{ steps.scope.outputs.paused || 'false' }}"
 
     def test_no_step_fakes_plan_outputs(self, wf):
         """Шаг, пишущий в свой GITHUB_OUTPUT, outputs шага plan не чинит."""

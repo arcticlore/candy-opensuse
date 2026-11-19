@@ -168,6 +168,10 @@ jobs:
     outputs:
       packages: ${{ steps.plan.outputs.packages || '[]' }}
       plan_size: ${{ steps.plan.outputs.plan_size || '0' }}
+      # Intentional emergency pause is a first-class deferred disposition,
+      # not an infrastructure failure. Downstream jobs still receive an
+      # explicit empty plan and can report the reason without any submit.
+      paused: ${{ steps.scope.outputs.paused || 'false' }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -193,10 +197,22 @@ jobs:
           # Emergency brake. Исключение ровно одно: preflight-only режим —
           # он НИЧЕГО не submit'ит и обязан быть запускаем при замороженной
           # публикации, иначе нечем доказать состояние зеркала перед recovery.
+          #
+          # Pause — намеренный deferred/no-op, а не infrastructure failure:
+          # публикуем доказуемо пустой план и останавливаем все следующие
+          # plan-шаги через steps.scope.outputs.paused. Ни plan, ни submit при
+          # этом не вызываются; preflight выше всё равно остаётся fail-closed.
           if [ "${CANDY_PUBLISH_PAUSE:-false}" = "true" ] && [ "${PREFLIGHT_ONLY}" != "true" ]; then
-            echo "ABORT: repo variable CANDY_PUBLISH_PAUSE=true (emergency brake)" >&2
-            exit 1
+            mkdir -p logs
+            printf '%s\n' '{"packages":[],"plan_size":0,"allowlist":[],"stale_targets":[]}' > logs/plan.json
+            printf '%s\n' 'DISPOSITION=paused (CANDY_PUBLISH_PAUSE=true); plan/build/submit deferred' > logs/plan.log
+            echo "paused=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Publication paused::CANDY_PUBLISH_PAUSE=true — plan/build/submit deferred intentionally"
+            echo "### Publication paused" >> "$GITHUB_STEP_SUMMARY"
+            echo "Emergency brake is enabled; this run submitted no builds." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
+          echo "paused=false" >> "$GITHUB_OUTPUT"
           if [ "$STABLE_PROJECT" != "arcticlore/candy-opensuse" ]; then
             echo "ABORT: STABLE_PROJECT=$STABLE_PROJECT вне allowlist" >&2
             exit 1
@@ -254,6 +270,7 @@ jobs:
           echo "SCOPE_OK wave=$MAX_WAVE force=${FORCE:-false} preflight_only=$PREFLIGHT_ONLY recovery=$RECOVERY"
 
       - name: Install toolchain
+        if: steps.scope.outputs.paused != 'true'
         run: |
           set -euo pipefail
           mkdir -p logs
@@ -265,6 +282,7 @@ jobs:
           mv logs/dnf-install.log logs/dnf-install-full.log
 
       - name: Configure COPR
+        if: steps.scope.outputs.paused != 'true'
         run: |
           set -euo pipefail
           COPR_CONF="$RUNNER_TEMP/copr-publish.conf"
@@ -281,14 +299,17 @@ jobs:
           fi
 
       - name: Generate specs (из pkgs.json; идемпотентный)
+        if: steps.scope.outputs.paused != 'true'
         run: python3 bin/gen_specs.py --all
 
       - name: Refresh upstream versions (цели волны из state.json)
+        if: steps.scope.outputs.paused != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 bin/coprase-status.py versions 2>&1 | tee logs/versions.log
 
       - name: Restore SRPM cache
+        if: steps.scope.outputs.paused != 'true'
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
         with:
           path: |
@@ -301,6 +322,7 @@ jobs:
 
       - name: Build wave plan (без submit)
         id: plan
+        if: steps.scope.outputs.paused != 'true'
         env:
           COPR_STABLE: ${{ inputs.stable_project || 'arcticlore/candy-opensuse' }}
           COPR_PILOT: ${{ inputs.pilot_project || 'arcticlore/candy-opensuse-pilot' }}
@@ -671,10 +693,19 @@ jobs:
         env:
           PLAN_RESULT: ${{ needs.plan.result }}
           PLAN_SIZE: ${{ needs.plan.outputs.plan_size }}
+          PLAN_PAUSED: ${{ needs.plan.outputs.paused }}
           PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
         run: |
           set -euo pipefail
           mkdir -p logs
+          # Emergency pause: scope-check сформировал валидный пустой план,
+          # а plan/build/submit были намеренно deferred. Это отдельный исход,
+          # не infrastructure failure и не «потерянные отчёты».
+          if [ "${PLAN_PAUSED:-false}" = "true" ]; then
+            echo "publication paused: plan/build/submit deferred; package reports intentionally absent"
+            python3 -c 'import json;json.dump({"disposition":"paused","items":[],"counts":{},"deferred":[],"stale_targets":[]},open("logs/wave-report.json","w"),ensure_ascii=False,indent=2)'
+            exit 0
+          fi
           # preflight-only: план/билды не запускались намеренно — это
           # диагностический успех, а не «потерянные отчёты».
           if [ "${PREFLIGHT_ONLY:-false}" = "true" ]; then
@@ -1145,10 +1176,19 @@ jobs:
           PLAN_RESULT: ${{ needs.plan.result }}
           PKG_RESULT: ${{ needs.package.result }}
           RECONCILE_RESULT: ${{ needs.reconcile.result }}
+          PLAN_PAUSED: ${{ needs.plan.outputs.paused }}
           PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
         run: |
           set -euo pipefail
-          echo "plan=$PLAN_RESULT package=$PKG_RESULT reconcile=$RECONCILE_RESULT"
+          echo "plan=$PLAN_RESULT package=$PKG_RESULT reconcile=$RECONCILE_RESULT paused=${PLAN_PAUSED:-false}"
+          # Intentional emergency pause is a visible deferred/no-op, not an
+          # infrastructure error. The empty plan and absence of package jobs
+          # were established by the first scope-check before any plan/submit.
+          if [ "${PLAN_PAUSED:-false}" = "true" ]; then
+            echo "::notice title=Publication deferred::emergency pause remained enabled; no builds submitted"
+            echo "publication paused/deferred — штатный no-op, infrastructure preflight был green"
+            exit 0
+          fi
           # preflight-only: единственная цель — доказать состояние зеркала;
           # отсутствие плана/билдов здесь штатно (и preflight уже отдал вердикт).
           if [ "${PREFLIGHT_ONLY:-false}" = "true" ]; then
