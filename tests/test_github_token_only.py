@@ -454,14 +454,15 @@ class TestNoDirectMasterPush:
 # 8. При CANDY_PUBLISH_PAUSE=true путь к package/build закрыт
 # ---------------------------------------------------------------------------
 class TestPausedMeansNoPackageOrBuild:
-    def test_pause_gate_reads_repo_variable_and_aborts(self, update_wf):
+    def test_pause_gate_reads_repo_variable_and_defers_explicitly(self, update_wf):
         wf = update_wf
         plan = wf["jobs"]["plan"]
         scope = next(s for s in plan["steps"]
                      if "CANDY_PUBLISH_PAUSE" in str(s.get("env", {})))
         run = scope["run"]
         assert 'CANDY_PUBLISH_PAUSE:-false}" = "true"' in run
-        assert "ABORT: repo variable CANDY_PUBLISH_PAUSE=true" in run
+        assert 'echo "paused=true" >> "$GITHUB_OUTPUT"' in run
+        assert "Publication paused" in run and "no builds" in run
         assert 'PREFLIGHT_ONLY}" != "true"' in run, (
             "preflight-only должен работать при pause=true")
 
