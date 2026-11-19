@@ -284,6 +284,21 @@ PILOT_SRPM_PROVENANCE = {
     ("pokemon-icat", "20261002.54d4bc5"): 11064380,
 }
 
+# COPR eventually garbage-collects old source-build artifacts while binary
+# RPMs remain published. Run 44615675919 proved that both exact provenance
+# URLs above now return 404. Rebuilding the missing chroot under the SAME
+# version with a newly generated SRPM would silently mix two source artifacts.
+#
+# Recovery therefore rolls forward to a NEW immutable target at the exact
+# upstream commit observed by the run's normal versions refresh. A new target
+# is absent from every chroot, so it gets one fresh full 4/4 pilot build rather
+# than overwriting the three successful chroots of the old target. This is a
+# bounded one-time reseed, not a daily date roll.
+RECOVERY_RESEED_TARGETS = {
+    "ghfetch": "20261119.4b44a4f",
+    "pokemon-icat": "20261119.c460e28",
+}
+
 
 def pilot_srpm_build_for(name: str, target: str,
                          hist: list[tuple[str, str, int]],
@@ -300,9 +315,13 @@ def pilot_srpm_build_for(name: str, target: str,
       2. активная сборка ИМЕННО этого target;
       3. ДОКАЗАННАЯ succeeded-сборка этого target (обычный promote-only,
          где pilot уже 4/4 и активной сборки нет);
-      4. иначе None — fetch уйдёт в fail-closed.
-    Новейшая сборка target'а, независимо от state, НЕ выбирается: terminal
-    failed parent не доказательство provenance и не должен подменяться.
+      4. для явно выделенного reseed-target — первый terminal build этого
+         target: именно он сделал начальную полную попытку и его SRPM нужен
+         для bounded retry только недостающих chroot;
+      5. иначе None — fetch уйдёт в fail-closed.
+    Произвольная failed-сборка обычного target'а по-прежнему НЕ выбирается:
+    исключение ограничено двумя immutable reseed-target и не протекает на
+    будущие версии.
     """
     pinned = PILOT_SRPM_PROVENANCE.get((name, ver_base(target)))
     if pinned is not None:
@@ -312,24 +331,47 @@ def pilot_srpm_build_for(name: str, target: str,
     for state, ver, bid in hist:
         if state == "succeeded" and ver_base(ver) == ver_base(target):
             return bid
+    reseed = RECOVERY_RESEED_TARGETS.get(name)
+    if reseed and ver_base(target) == ver_base(reseed):
+        terminal = [bid for state, ver, bid in hist
+                    if state not in ACTIVE and state != "succeeded"
+                    and ver_base(ver) == ver_base(target)]
+        if terminal:
+            return min(terminal)  # первая полная попытка, не поздний retry
     return None
 
 
 def recovery_pinned_target(name: str) -> str | None:
-    """Target из provenance-пина для recovery — единственный пин на имя.
+    """Immutable recovery-target: reseed имеет приоритет над старым SRPM-пином.
 
-    Пин привязан к ТОЧНОЙ паре (имя, version). В recovery-режиме цель обязана
-    быть именно этой версией: иначе дневной refresh (commit-fallback date.hash)
-    сдвинул бы target, пин перестал бы совпадать и remediation собрала бы не тот
-    артефакт. Возвращает None, если для имени нет ровно одного пина.
+    Обычный provenance-пин продолжает точный partial build тем же SRPM.
+    Reseed применяется только когда старый exact SRPM уже удалён COPR: новая
+    версия не смешивается с тремя опубликованными chroot старой версии.
     """
+    if name in RECOVERY_RESEED_TARGETS:
+        return RECOVERY_RESEED_TARGETS[name]
     vers = sorted({ver for (n, ver) in PILOT_SRPM_PROVENANCE if n == name})
     return vers[0] if len(vers) == 1 else None
 
 
+def _commit_target_hash(value: str) -> str | None:
+    """Hash из date.hash commit-target либо None."""
+    value = ver_base(value or "")
+    date, dot, commit = value.partition(".")
+    if (dot and len(date) == 8 and date.isdigit() and len(commit) >= 7
+            and all(c in "0123456789abcdefABCDEF" for c in commit)):
+        return commit.lower()
+    return None
+
+
 def apply_recovery_pins(versions: dict[str, str],
                         allow_names: list[str] | None) -> dict[str, str]:
-    """В recovery-режиме взять target из provenance-пина, а не из refresh дня."""
+    """Применить bounded provenance/reseed targets, не откатывая новый upstream.
+
+    Для reseed commit из обычного versions-refresh обязан совпасть с target:
+    так устаревший hard-code не может откатить более новый upstream. Для
+    обычного SRPM-пина несовпавшая текущая версия просто остаётся текущей.
+    """
     if not allow_names:
         return versions
     out = dict(versions)
@@ -337,9 +379,22 @@ def apply_recovery_pins(versions: dict[str, str],
         pin = recovery_pinned_target(name)
         if pin is None:
             continue
-        if out.get(name) and out[name] != pin:
-            print(f"  recovery-pin: {name} target {out[name]} -> {pin} "
-                  f"(точный provenance, не дневной refresh)")
+        current = out.get(name, "")
+        if name in RECOVERY_RESEED_TARGETS:
+            expected_hash = _commit_target_hash(pin)
+            current_hash = _commit_target_hash(current)
+            if not current or expected_hash is None or current_hash != expected_hash:
+                raise RecoveryAllowlistError(
+                    f"{name}: reseed target {pin} не подтверждён текущим "
+                    f"versions-refresh ({current or 'empty'}) — recovery запрещён")
+        elif current and ver_base(current) != ver_base(pin):
+            print(f"  recovery-pin: {name} {pin} устарел относительно {current}; "
+                  "используем текущую цель")
+            continue
+        if current and current != pin:
+            reason = "новая версия: старый exact SRPM удалён" if \
+                name in RECOVERY_RESEED_TARGETS else "точный provenance"
+            print(f"  recovery-pin: {name} target {current} -> {pin} ({reason})")
         out[name] = pin
     return out
 
