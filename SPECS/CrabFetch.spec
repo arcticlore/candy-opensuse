@@ -1,5 +1,5 @@
 Name:           CrabFetch
-Version:        0.5.4
+Version:        0.5.5
 Release:        1%{?dist}
 Summary:        Extremely fast and featureful command-line fetcher
 
@@ -54,5 +54,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/crabfetch
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 0.5.4-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 0.5.5-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
