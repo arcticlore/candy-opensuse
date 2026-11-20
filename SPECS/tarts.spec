@@ -1,5 +1,5 @@
 Name:           tarts
-Version:        0.1.25
+Version:        0.1.27
 Release:        1%{?dist}
 Summary:        Экранные заставки и визуальные эффекты для терминала
 
@@ -54,5 +54,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/tarts
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 0.1.25-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 0.1.27-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
