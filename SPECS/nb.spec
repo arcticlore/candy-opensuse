@@ -1,5 +1,5 @@
 Name:           nb
-Version:        7.25.5
+Version:        7.25.6
 Release:        1%{?dist}
 Summary:        Заметки/закладки/блокноты — всё в CLI (один bash-файл)
 
@@ -44,5 +44,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/nb
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 7.25.5-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 7.25.6-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
