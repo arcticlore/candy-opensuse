@@ -103,20 +103,23 @@ class ClearGatedTests(unittest.TestCase):
         found = mg.gated_runs("o/r", SHA, BRANCH, gh=gh)
         self.assertEqual([r["id"] for r in found], [44738315930])
 
-    def test_delete_path_clears_run(self) -> None:
+    def test_approve_is_the_default_path(self) -> None:
+        # Удаление прогона уносит обязательные контексты вместе с ним
+        # (PR #89: rollup стал пустым, merge box остался BLOCKED), поэтому
+        # сначала approve — он даёт прогону отчитаться контекстами.
         gh = make_fake_gh(self.tmp, self.state([run_payload()]))
         handled = mg.clear_gated_runs("o/r", SHA, BRANCH, gh=gh, sleep=lambda _s: None)
-        self.assertEqual(handled, [("deleted", 44738315930)])
+        self.assertEqual(handled, [("approved", 44738315930)])
         left = mg.gated_runs("o/r", SHA, BRANCH, gh=gh)
         self.assertEqual(left, [])
 
-    def test_approve_is_the_fallback_when_delete_is_denied(self) -> None:
-        gh = make_fake_gh(self.tmp, self.state([run_payload()], allow_delete=False))
+    def test_delete_is_the_fallback_when_approve_is_denied(self) -> None:
+        gh = make_fake_gh(self.tmp, self.state([run_payload()], allow_approve=False))
         handled = mg.clear_gated_runs("o/r", SHA, BRANCH, gh=gh, sleep=lambda _s: None)
-        self.assertEqual(handled, [("approved", 44738315930)])
+        self.assertEqual(handled, [("deleted", 44738315930)])
         self.assertEqual(mg.gated_runs("o/r", SHA, BRANCH, gh=gh), [])
 
-    def test_fails_closed_when_neither_delete_nor_approve_works(self) -> None:
+    def test_fails_closed_when_neither_approve_nor_delete_works(self) -> None:
         gh = make_fake_gh(self.tmp, self.state([run_payload()],
                                                allow_delete=False, allow_approve=False))
         with self.assertRaises(mg.GateError) as ctx:
@@ -145,7 +148,7 @@ class ClearGatedTests(unittest.TestCase):
             mg.gated_runs("o/r", "", BRANCH, gh=gh)
 
     def test_timeout_is_fail_closed_when_runs_keep_reappearing(self) -> None:
-        # DELETE «успешен», но GitHub отдаёт gated run снова: ждать вечно нельзя.
+        # approve «успешен», но GitHub отдаёт gated run снова: ждать вечно нельзя.
         runs = [run_payload()]
         gh = make_fake_gh(self.tmp, self.state(runs, allow_delete=False, allow_approve=True))
         state_file = self.tmp / "state.json"
