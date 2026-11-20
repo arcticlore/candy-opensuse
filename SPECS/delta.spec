@@ -1,5 +1,5 @@
 Name:           delta
-Version:        0.19.2
+Version:        0.21.2
 Release:        1%{?dist}
 Summary:        Подсветка синтаксиса для git diff/blame/grep, pager для df
 
@@ -54,5 +54,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/delta
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 0.19.2-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 0.21.2-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
