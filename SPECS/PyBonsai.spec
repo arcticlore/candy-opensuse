@@ -1,5 +1,5 @@
 Name:           PyBonsai
-Version:        3.0.0
+Version:        3.1.0
 Release:        1%{?dist}
 Summary:        Procedural ASCII bonsai tree generator
 
@@ -46,5 +46,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{python3_sitelib}/*
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 3.0.0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 3.1.0-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
