@@ -1178,6 +1178,34 @@ class TestProvenanceSeparation:
                  ("failed", "3.8.0-2.fc44", 12000004)]
         assert mod.pilot_srpm_build_for("dysk", "3.8.0", hist2, None) is None
 
+    def test_reseed_retry_keeps_first_full_build_as_provenance(self, mod):
+        """Только immutable reseed может взять terminal build без ручного пина."""
+        target = mod.RECOVERY_RESEED_TARGETS["ghfetch"]
+        hist = [("failed", f"{target}-2.fc44", 12000012),
+                ("failed", f"{target}-1.fc44", 12000011)]
+        assert mod.pilot_srpm_build_for("ghfetch", target, hist, None) == 12000011
+        # Исключение не протекает ни на другой target, ни на другой пакет.
+        assert mod.pilot_srpm_build_for(
+            "ghfetch", "20261120.deadbee", hist, None) is None
+        assert mod.pilot_srpm_build_for(
+            "dysk", target, hist, None) is None
+
+    def test_reseed_without_previous_build_uses_fresh_srpm(self, mod):
+        """Новый target отсутствует 4/4: план не подсовывает старый provenance."""
+        target = mod.RECOVERY_RESEED_TARGETS["ghfetch"]
+        hist = {"ghfetch": [("failed", "20261002.4b44a4f-1.fc44", 11064212)]}
+        plan = mod.build_plan(
+            [{"name": "ghfetch", "prio": 2, "enabled": True}],
+            {"ghfetch": target}, hist, 1, stable_hist={},
+            pilot_published={"ghfetch": {"20261002.4b44a4f"}},
+            stable_published={}, pilot_completed={}, stable_completed={})
+        assert plan == [{
+            "name": "ghfetch", "target": target,
+            "pilot_build": None, "stable_build": None,
+            "pilot_srpm_build": None, "pilot_ok": False,
+            "stable_ok": False, "mode": "full", "force": False,
+        }]
+
     def test_future_active_build_uses_new_id_not_the_old_pin(self, mod):
         hist = {"dysk": [("running", "3.8.0-1.fc44", 12000000)]}
         plan = mod.build_plan([{"name": "dysk", "prio": 5, "enabled": True}],
@@ -1250,28 +1278,39 @@ class TestProvenanceSeparation:
 
 
 class TestRecoveryPinTarget:
-    """Recovery: target берётся из точного provenance-пина, не из refresh дня.
+    """Recovery: exact SRPM pin либо bounded reseed на новой версии.
 
-    Дневной refresh (commit-fallback date.hash) мог сдвинуть цель на новую дату
-    при том же SHA. В recovery цель обязана совпасть с парой, под которую
-    закреплён SRPM, иначе remediation соберёт не тот артефакт.
+    Если COPR уже удалил старый source artifact, retry той же версии со свежим
+    SRPM запрещён: он смешал бы разные источники между chroot. Два доказанных
+    404-кейса получают новую immutable версию на подтверждённом upstream SHA.
     """
 
-    def test_pinned_target_returned(self, mod):
-        assert mod.recovery_pinned_target("ghfetch") == "20261002.4b44a4f"
-        assert mod.recovery_pinned_target("pokemon-icat") == "20261002.54d4bc5"
+    def test_pinned_or_reseed_target_returned(self, mod):
+        assert mod.recovery_pinned_target("ghfetch") == "20261119.4b44a4f"
+        assert mod.recovery_pinned_target("pokemon-icat") == "20261119.c460e28"
         assert mod.recovery_pinned_target("dua") == "2.45.1"
         assert mod.recovery_pinned_target("dysk") == "3.7.1"
 
     def test_unpinned_name_is_none(self, mod):
         assert mod.recovery_pinned_target("gum") is None
 
-    def test_apply_overrides_today_refresh(self, mod):
-        versions = {"ghfetch": "20261009.4b44a4f", "gum": "2.0.2"}
+    def test_reseed_rolls_date_only_when_commit_matches(self, mod):
+        versions = {"ghfetch": "20260926.4b44a4f", "gum": "2.0.2"}
         out = mod.apply_recovery_pins(versions, ["ghfetch"])
-        assert out["ghfetch"] == "20261002.4b44a4f", \
-            "recovery обязан взять пин, а не дневной refresh"
+        assert out["ghfetch"] == "20261119.4b44a4f"
         assert out["gum"] == "2.0.2", "пакет вне allowlist не трогаем"
+
+    def test_reseed_refuses_unconfirmed_or_newer_commit(self, mod):
+        with pytest.raises(mod.RecoveryAllowlistError, match="не подтверждён"):
+            mod.apply_recovery_pins(
+                {"pokemon-icat": "20261002.54d4bc5"}, ["pokemon-icat"])
+        with pytest.raises(mod.RecoveryAllowlistError, match="не подтверждён"):
+            mod.apply_recovery_pins(
+                {"ghfetch": "20261120.deadbee"}, ["ghfetch"])
+
+    def test_old_semver_pin_cannot_downgrade_new_upstream(self, mod):
+        out = mod.apply_recovery_pins({"dua": "3.0.3"}, ["dua"])
+        assert out["dua"] == "3.0.3"
 
     def test_noop_without_allowlist(self, mod):
         versions = {"ghfetch": "20261009.4b44a4f"}
