@@ -1,5 +1,5 @@
 Name:           doggo
-Version:        1.4.0
+Version:        1.4.2
 Release:        1%{?dist}
 Summary:        Fast command-line DNS client for humans
 
@@ -47,5 +47,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/doggo
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.4.0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.4.2-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
