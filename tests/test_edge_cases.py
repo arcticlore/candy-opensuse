@@ -384,6 +384,16 @@ class TestPkgsJsonEdgeCases:
 # ─── bash script syntax ────────────────────────────────────────────────────────
 
 
+class TestMakeSrpmToolchain:
+    """SRPM vendoring may follow an upstream Go toolchain directive safely."""
+
+    def test_go_vendor_enables_verified_toolchain_switch(self):
+        path = os.path.join(ROOT, "bin", "make-srpm.sh")
+        with open(path, encoding="utf-8") as fh:
+            script = fh.read()
+        assert "GOTOOLCHAIN=auto GOFLAGS= go mod vendor" in script
+
+
 class TestBashSyntax:
     """Bash script syntax validation."""
 
