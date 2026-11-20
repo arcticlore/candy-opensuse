@@ -172,7 +172,10 @@ cargo)
 go)
     command -v go >/dev/null || { echo "нужен go: sudo dnf install golang"; exit 3; }
     D=$(extract "$SRC")
-    (cd "$D" && GOFLAGS= go mod vendor)
+    # Fedora runner может отставать от `go` в upstream go.mod. Разрешаем
+    # штатный checksum-verified toolchain switch (Go module proxy + sumdb);
+    # сами openSUSE chroot всё равно компилируют офлайн своим BuildRequires: go.
+    (cd "$D" && GOTOOLCHAIN=auto GOFLAGS= go mod vendor)
     tar -C "$D" -czf "SOURCES/$NAME-node-vendor-$VER.tar.gz" vendor
     rm -rf "$D" ;;
 npm)
