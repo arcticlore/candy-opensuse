@@ -1,5 +1,5 @@
 Name:           tealdeer
-Version:        1.9.0
+Version:        1.9.1
 Release:        1%{?dist}
 Summary:        Быстрый tldr-client: примеры команд вместо man
 
@@ -55,5 +55,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/tldr
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.9.0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.9.1-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)

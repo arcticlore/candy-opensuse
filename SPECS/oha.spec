@@ -1,5 +1,5 @@
 Name:           oha
-Version:        1.16.0
+Version:        1.17.0
 Release:        1%{?dist}
 Summary:        HTTP бенчмарк с красивым TUI
 
@@ -54,5 +54,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/oha
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.16.0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.17.0-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
