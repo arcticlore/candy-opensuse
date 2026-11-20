@@ -1,5 +1,5 @@
 Name:           tabiew
-Version:        0
+Version:        0.15.1
 Release:        1%{?dist}
 Summary:        TUI-просмотр csv/parquet/json датасетов
 
@@ -16,6 +16,8 @@ BuildRequires:  cargo
 BuildRequires:  rust
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
+
+# NOTE: MSRV: 0.16.0 требует rustc 1.99.1; Tumbleweed даёт 1.99.0, Leap 16.0 — 1.98.0 (COPR 11367438 упал на %%build). Пин снять, когда в Tumbleweed приедет rustc >= 1.99.1.
 
 %description
 TUI-просмотр csv/parquet/json датасетов
@@ -54,5 +56,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/tw
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 0.15.1-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
