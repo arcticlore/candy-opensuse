@@ -1068,6 +1068,28 @@ jobs:
             --head-sha "$HEAD_SHA" \
             --repo "$REPO"
 
+      # GitHub дополнительно заводит на bot-PR пустой pull_request run и гасит
+      # его как action_required («workflow awaiting approval»). Jobs в нём нет,
+      # required contexts он не даёт — но merge box держится в BLOCKED, и
+      # auto-merge не наступает никогда. Снимаем ровно этот run на точном head
+      # SHA; отказ = красный reconcile, а не тихо зависший PR.
+      - name: Clear redundant gated PR run (bot-PR unblock)
+        id: clear-gated
+        if: steps.sync.outputs.pr_url != '' && steps.dispatch-validate.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ steps.sync.outputs.branch }}
+          HEAD_SHA: ${{ steps.sync.outputs.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          set +x
+          python3 bin/merge_gate.py clear-gated \
+            --repo "$REPO" \
+            --branch "$BRANCH" \
+            --head-sha "$HEAD_SHA" \
+            --timeout-min 5
+
       # Доказательство до auto-merge: каждый required check существует,
       # прошёл и относится ИМЕННО к head SHA PR. Отсутствие/таймаут/отказ = fail.
       - name: Wait required checks on exact PR head SHA
@@ -1090,15 +1112,25 @@ jobs:
       # гейт прошёл по СГЕНЕРИРОВАННОМУ diff'у.
       - name: Enable auto-merge after green checks
         id: auto-merge
-        if: steps.sync.outputs.pr_url != '' && steps.wait-checks.outcome == 'success' && steps.regen-check.outputs.regen_gate == 'ok'
+        if: steps.sync.outputs.pr_url != '' && steps.wait-checks.outcome == 'success' && steps.clear-gated.outcome == 'success' && steps.regen-check.outputs.regen_gate == 'ok'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ steps.sync.outputs.pr_url }}
+          BRANCH: ${{ steps.sync.outputs.branch }}
+          HEAD_SHA: ${{ steps.sync.outputs.head_sha }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           set +x
           # Падение включения auto-merge обязано быть красным: иначе PR молча
           # остаётся открытым и не мержится, а run притворяется успешным.
+          # Повторная зачистка перед включением auto-merge: GitHub мог завести
+          # gated run уже после dispatch, и тогда merge box снова BLOCKED.
+          python3 bin/merge_gate.py clear-gated \
+            --repo "$REPO" \
+            --branch "$BRANCH" \
+            --head-sha "$HEAD_SHA" \
+            --timeout-min 2
           if ! gh pr merge "$PR_URL" --auto --squash --delete-branch; then
             echo "::error::auto-merge не включён для $PR_URL — PR не сольётся автоматически" >&2
             exit 1
