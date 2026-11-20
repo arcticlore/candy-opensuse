@@ -91,9 +91,6 @@ def select_exact_run(runs: list[dict[str, Any]], sha: str) -> dict[str, Any] | N
     run = exact[0]
     if run.get("path") != WORKFLOW_PATH:
         raise ApprovalError(f"unexpected workflow path: {run.get('path')!r}")
-    actor = run.get("actor") or {}
-    if actor.get("login") != BOT or actor.get("type") != "Bot":
-        raise ApprovalError("validation run actor is not github-actions[bot]")
     return run
 
 
@@ -150,6 +147,9 @@ def approve(event: dict[str, Any], *, repo: str, api: GitHubAPI, timeout: int = 
             if not isinstance(run_id, int) or run_id <= 0:
                 raise ApprovalError("validation run has invalid id")
             if status == "completed" and conclusion == "action_required":
+                actor = run.get("actor") or {}
+                if actor.get("login") != BOT or actor.get("type") != "Bot":
+                    raise ApprovalError("action-required validation actor is not github-actions[bot]")
                 api.post(f"/repos/{repo}/actions/runs/{run_id}/approve")
                 return f"approved bounded bot validation run {run_id} for PR #{number} @ {sha}"
             if status in {"queued", "in_progress", "waiting", "requested", "pending"}:

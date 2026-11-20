@@ -104,20 +104,23 @@ def test_file_scope_fails_closed(files):
         gate.validate_files(files)
 
 
-def test_active_exact_run_needs_no_approval():
-    api = API(runs=[run(status="in_progress", conclusion=None)])
+def test_active_exact_run_needs_no_approval_even_after_trusted_maintainer_push():
+    api = API(runs=[run(status="in_progress", conclusion=None,
+                        actor="arcticlore", actor_type="User")])
     message = gate.approve(event(), repo=REPO, api=api, timeout=0)
     assert api.posts == []
     assert "already active" in message
 
 
-def test_wrong_workflow_or_actor_cannot_be_approved():
+def test_wrong_workflow_or_action_required_actor_cannot_be_approved():
     bad_path = run()
     bad_path["path"] = ".github/workflows/evil.yml"
     with pytest.raises(gate.ApprovalError):
         gate.select_exact_run([bad_path], SHA)
+    api = API(runs=[run(actor="someone", actor_type="User")])
     with pytest.raises(gate.ApprovalError):
-        gate.select_exact_run([run(actor="someone", actor_type="User")], SHA)
+        gate.approve(event(), repo=REPO, api=api, timeout=0)
+    assert api.posts == []
 
 
 def test_workflow_is_privileged_but_never_checks_out_pr_head():
