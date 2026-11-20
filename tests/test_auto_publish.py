@@ -773,6 +773,30 @@ class TestArgParsing:
         err = capfd.readouterr().err
         assert "--confirm" in err
 
+    def test_boolean_flags_before_subcommand_do_not_consume_it(self, mod):
+        args = mod.parse_args(mod.canonicalize(["--confirm", "run"]))
+        assert args.command == "run"
+        assert args.confirm is True
+        args = mod.parse_args(mod.canonicalize(["--recovery", "plan"]))
+        assert args.command == "plan"
+        assert args.recovery is True
+
+    def test_recovery_env_parses_false_as_false(self, mod, monkeypatch):
+        monkeypatch.setenv("WAVE_RECOVERY", "false")
+        args = mod.parse_args(mod.canonicalize(["plan"]))
+        assert args.recovery is False
+
+    def test_recovery_env_parses_true_as_true(self, mod, monkeypatch):
+        monkeypatch.setenv("WAVE_RECOVERY", "true")
+        args = mod.parse_args(mod.canonicalize(["plan"]))
+        assert args.recovery is True
+
+    def test_recovery_env_rejects_ambiguous_value(self, mod, monkeypatch):
+        monkeypatch.setenv("WAVE_RECOVERY", "False")
+        with pytest.raises(ValueError, match="ровно true или false"):
+            mod.parse_args(mod.canonicalize(["plan"]))
+
+
 class TestPartialChrootRemediation:
     """Сценарий 3/4 -> повтор только недостающего chroot -> агрегированные 4/4.
 

@@ -1276,6 +1276,18 @@ def cmd_run(args) -> int:
     return 0
 
 
+def env_bool(name: str) -> bool:
+    """Разобрать boolean из env без ловушки bool("false") == True."""
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return False
+    if raw == "true":
+        return True
+    if raw == "false":
+        return False
+    raise ValueError(f"{name} должен быть ровно true или false (получили {raw!r})")
+
+
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(prog="auto-publish.py")
     ap.add_argument("--max-wave", type=int, default=int(os.environ.get("WAVE_MAX", "5")))
@@ -1298,7 +1310,7 @@ def parse_args(argv=None):
     ap.add_argument("--recovery-allowlist", default=os.environ.get("WAVE_RECOVERY_ALLOWLIST") or None,
                     help="recovery: файл или CSV имён пакетов; фильтр ДО плана")
     ap.add_argument("--recovery", action="store_true",
-                    default=bool(os.environ.get("WAVE_RECOVERY")),
+                    default=env_bool("WAVE_RECOVERY"),
                     help="recovery-режим: пустой allowlist => abort (fail-closed)")
     ap.add_argument("--preflight-json", default=os.environ.get("WAVE_PREFLIGHT_JSON") or None,
                     help="run: preflight-evidence; ok!=true => submit запрещён")
@@ -1315,23 +1327,27 @@ def parse_args(argv=None):
 def canonicalize(argv):
     """Флаги можно писать как до, так и после субкоманды
     (`plan --max-wave 5` и `--max-wave 5 plan` — одно и то же)."""
-    opts = ("--max-wave", "--force", "--confirm", "--token", "--copr-config",
-            "--timeout-min", "--only", "--report-path", "--json-out",
-            "--plan-entry", "--propagate-min", "--recovery-allowlist",
-            "--preflight-json", "--brake-file", "--cooldown-min", "--recovery")
+    value_opts = ("--max-wave", "--token", "--copr-config", "--timeout-min",
+                  "--only", "--report-path", "--json-out", "--plan-entry",
+                  "--propagate-min", "--recovery-allowlist", "--preflight-json",
+                  "--brake-file", "--cooldown-min")
+    flag_opts = ("--force", "--confirm", "--recovery")
     head, tail = [], []
     i = 0
     while i < len(argv):
         a = argv[i]
-        matched = next((o for o in opts if a == o), None)
-        if matched and "=" not in a:
+        if a in flag_opts:
+            head.append(a)
+            i += 1
+            continue
+        if a in value_opts:
             head.append(a)
             if i + 1 < len(argv) and not argv[i + 1].startswith("--"):
                 head.append(argv[i + 1])
                 i += 1
             i += 1
             continue
-        if any(a.startswith(o) for o in opts):
+        if any(a.startswith(o + "=") for o in value_opts):
             head.append(a)
         else:
             tail.append(a)
