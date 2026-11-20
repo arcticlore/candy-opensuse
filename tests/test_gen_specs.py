@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """test_gen_specs.py — тесты генератора RPM-спеков."""
 import os, sys, json, pytest, tempfile, shutil
+from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "bin"))
@@ -86,6 +87,17 @@ class TestGenSpecs:
         assert "install -Dpm0755 target/release/" in body, "нет установки из target/release"
         assert f"%{{_bindir}}/{sample_pkg['bins'][0]}" in body, \
             f"нет %{{_bindir}}/{sample_pkg['bins'][0]} в %files"
+
+    def test_crabfetch_055_binary_rename_is_pinned(self, pkgs_json):
+        """CrabFetch 0.5.5 builds crab-fetch but keeps the public crabfetch command."""
+        import gen_specs
+        assert next(x for x in pkgs_json["packages"] if x["name"] == "CrabFetch")
+        meta = gen_specs.make_meta(gen_specs.load_pkgs(Path(ROOT) / "pkgs.json"))
+        spec = gen_specs.render("CrabFetch", "0.5.5", meta)
+        assert "install -Dpm0755 target/release/crab-fetch %{buildroot}%{_bindir}/crabfetch" in spec
+        assert "%{_bindir}/crabfetch" in spec
+        assert "%{_bindir}/crab-fetch" not in spec
+        assert "License:        Apache-2.0" in spec
 
     def test_prebuilt_body_no_build_no_network(self, pkgs_json):
         """prebuilt-бэкенд: без zig/сборки/BR, ассеты по %{_arch}, оба SOURCE в files"""
