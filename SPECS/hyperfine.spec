@@ -1,5 +1,5 @@
 Name:           hyperfine
-Version:        1.20.0
+Version:        2.0.0
 Release:        1%{?dist}
 Summary:        Бенчмарк команд со статистикой и экспортом
 
@@ -54,5 +54,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/hyperfine
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.20.0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 2.0.0-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
