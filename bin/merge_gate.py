@@ -9,6 +9,10 @@
 
   dispatch      — ЯВНО запустить validate.yml на точной bot-ветке и убедиться,
                   что голова ветки не ушла с head SHA PR;
+  clear-gated   — снять РЕДУНДАНТНЫЙ run, который GitHub заводит на bot-PR в
+                  состоянии action_required («workflow awaiting approval»):
+                  он не даёт ни одного check, но держит merge box в BLOCKED,
+                  из-за чего auto-merge не срабатывает никогда;
   wait-checks   — дождаться ВСЕХ required checks и доказать, что каждый из них
                   относится именно к head SHA PR (а не к master/другому SHA);
   observe-merged— дождаться фактического verdict `merged`.
@@ -40,6 +44,10 @@ BAD_CONCLUSIONS = frozenset({
 # Ещё бегущие/не начавшиеся.
 PENDING_CONCLUSIONS = frozenset({None, "", "queued", "in_progress", "waiting",
                                  "requested", "pending", "rerequested"})
+
+# Редундантный PR-run бота: событие pull_request(_target) + action_required.
+GATED_EVENTS = frozenset({"pull_request", "pull_request_target"})
+GATED_CONCLUSION = "action_required"
 
 DEFAULT_CHECKS_FILE = "ci/required-checks.json"
 DEFAULT_WORKFLOW = "validate.yml"
@@ -251,6 +259,95 @@ def dispatch_workflow(
             f"после dispatch голова ветки {branch} сменилась: {after} != {head_sha}")
 
 
+def gated_runs(repo: str, head_sha: str, branch: str, *, gh: str = "gh") -> list[dict]:
+    """Редундантные PR-run'ы GitHub на этом SHA в состоянии action_required.
+
+    GITHUB_TOKEN-PR не запускает CI сам, но GitHub всё равно заводит пустой
+    `pull_request` run и гасит его как action_required («ждёт одобрения»).
+    Jobs в нём нет, поэтому required contexts он не портит — зато PR остаётся
+    BLOCKED, и `--auto` merge не наступает никогда.
+
+    Выборка максимально узкая и fail-closed: ровно этот repo, ровно этот
+    head SHA, ровно эта candy-bot/* ветка, событие pull_request(_target),
+    conclusion == action_required. Ничего другого функция не трогает.
+    """
+    if not branch.startswith("candy-bot/"):
+        raise GateError(f"clear-gated только для candy-bot/*, получено {branch!r}")
+    if not head_sha:
+        raise GateError("head SHA обязателен: снимать можно только run'ы точного PR head")
+    data = gh_api(
+        f"repos/{repo}/actions/runs?head_sha={head_sha}&per_page=100", gh=gh)
+    if not isinstance(data, dict):
+        raise GateError(f"неожиданный ответ actions/runs для {head_sha}")
+    runs = data.get("workflow_runs")
+    if not isinstance(runs, list):
+        raise GateError(f"workflow_runs отсутствуют в ответе для {head_sha}")
+    found: list[dict] = []
+    for run in runs:
+        if not isinstance(run, dict):
+            raise GateError("элемент workflow_runs не объект")
+        if run.get("head_sha") != head_sha:
+            # Фильтр API не сработал — дальше работать вслепую нельзя.
+            raise GateError(
+                f"actions/runs вернул чужой head_sha={run.get('head_sha')}, ожидался {head_sha}")
+        if run.get("event") not in GATED_EVENTS:
+            continue
+        if run.get("head_branch") != branch:
+            continue
+        if run.get("conclusion") != GATED_CONCLUSION:
+            continue
+        run_id = run.get("id")
+        if not isinstance(run_id, int) or run_id <= 0:
+            raise GateError(f"подозрительный id у gated run: {run_id!r}")
+        found.append(run)
+    return found
+
+
+def clear_gated_runs(
+    repo: str,
+    head_sha: str,
+    branch: str,
+    *,
+    timeout_min: float = 5.0,
+    gh: str = "gh",
+    poll_s: float = 10.0,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> list[tuple[str, int]]:
+    """Снимает gated-run'ы, пока их не останется. Любой отказ = GateError.
+
+    Сначала DELETE (run пустой: ни jobs, ни логов — удаление ничего не прячет),
+    при отказе — approve. Если не вышло ни то, ни другое, волна обязана упасть:
+    молча оставить PR в BLOCKED нельзя.
+    """
+    deadline = clock() + timeout_min * 60
+    handled: list[tuple[str, int]] = []
+    while True:
+        pending = gated_runs(repo, head_sha, branch, gh=gh)
+        if not pending:
+            return handled
+        for run in pending:
+            run_id = int(run["id"])
+            try:
+                _run([gh, "api", "-X", "DELETE",
+                      f"repos/{repo}/actions/runs/{run_id}"], timeout=60)
+                handled.append(("deleted", run_id))
+                continue
+            except GateError as del_exc:
+                try:
+                    _run([gh, "api", "-X", "POST",
+                          f"repos/{repo}/actions/runs/{run_id}/approve"], timeout=60)
+                except GateError as approve_exc:
+                    raise GateError(
+                        f"gated run {run_id} не снят: delete={del_exc}; "
+                        f"approve={approve_exc}") from approve_exc
+                handled.append(("approved", run_id))
+        if clock() >= deadline:
+            raise GateError(
+                f"таймаут {timeout_min} мин: gated run'ы на {head_sha} не исчезли")
+        sleep(poll_s)
+
+
 def observe_merged(
     pr_url: str,
     *,
@@ -286,6 +383,15 @@ def _build_parser() -> argparse.ArgumentParser:
     d.add_argument("--repo", required=True)
     d.add_argument("--gh", default="gh")
 
+    c = sub.add_parser("clear-gated",
+                       help="снять редундантный action_required run на head SHA")
+    c.add_argument("--repo", required=True)
+    c.add_argument("--branch", required=True)
+    c.add_argument("--head-sha", required=True)
+    c.add_argument("--timeout-min", type=float, default=5.0)
+    c.add_argument("--poll-s", type=float, default=10.0)
+    c.add_argument("--gh", default="gh")
+
     w = sub.add_parser("wait-checks", help="дождаться required checks на exact SHA")
     w.add_argument("--repo", required=True)
     w.add_argument("--head-sha", required=True)
@@ -310,6 +416,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.workflow, branch=args.branch, head_sha=args.head_sha,
                 repo=args.repo, gh=args.gh)
             print(f"dispatched {args.workflow} on {args.branch} @ {args.head_sha}")
+        elif args.cmd == "clear-gated":
+            handled = clear_gated_runs(
+                args.repo, args.head_sha, args.branch,
+                timeout_min=args.timeout_min, poll_s=args.poll_s, gh=args.gh)
+            if handled:
+                for action, run_id in handled:
+                    print(f"gated run {run_id}: {action}")
+            else:
+                print(f"gated run'ов на {args.head_sha} нет")
         elif args.cmd == "wait-checks":
             required = load_required_checks(args.checks_file)
             report = wait_for_checks(
