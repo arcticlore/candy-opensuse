@@ -1,5 +1,5 @@
 Name:           onefetch
-Version:        2.28.1
+Version:        3.2.0
 Release:        1%{?dist}
 Summary:        Показывает инфо о git-репозитории ( committing, languages, lines... )
 
@@ -54,5 +54,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/onefetch
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 2.28.1-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 3.2.0-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)

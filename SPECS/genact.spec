@@ -1,5 +1,5 @@
 Name:           genact
-Version:        1.5.1
+Version:        1.6.0
 Release:        1%{?dist}
 Summary:        Генератор безумной активности — притворись хакером
 
@@ -54,5 +54,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/genact
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.5.1-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.6.0-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)

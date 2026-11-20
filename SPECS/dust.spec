@@ -1,5 +1,5 @@
 Name:           dust
-Version:        1.2.6
+Version:        1.2.7
 Release:        1%{?dist}
 Summary:        Более интуитивное du (disk usage)
 
@@ -54,5 +54,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/dust
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.2.6-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.2.7-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
