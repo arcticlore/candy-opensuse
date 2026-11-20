@@ -43,6 +43,11 @@ on:
         description: "Recovery: файл/CSV имён пакетов; фильтр ДО плана (только workflow_dispatch)"
         required: false
         default: ""
+      retry_failed_targets:
+        description: "Осознанно повторить failed targets до истечения cooldown (обычная волна; preflight и все гейты сохраняются)"
+        type: boolean
+        required: false
+        default: false
 
 # Встроенный run-scoped GITHUB_TOKEN — единственный токен волны: push
 # candy-bot/*, PR, dispatch validate и auto-merge идут на github.token.
@@ -575,6 +580,10 @@ jobs:
           # preflight-evidence или при взведённом mirror-brake.
           WAVE_PREFLIGHT_JSON: ${{ runner.temp }}/preflight/preflight.json
           WAVE_BRAKE_FILE: logs/retry-brake.json
+          # Cooldown отключается только явным boolean input ручной ordinary-волны.
+          # Schedule не имеет inputs => всегда остаётся fail-safe 1440 минут.
+          # Mirror-brake и зелёный preflight при этом по-прежнему обязательны.
+          WAVE_COOLDOWN_MIN: ${{ inputs.retry_failed_targets == true && '0' || '1440' }}
           PKG_TIMEOUT_MIN: "300"
         run: |
           set +e
