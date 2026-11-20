@@ -491,14 +491,15 @@
    "slug": "LivacoNew/CrabFetch",
    "tagp": "v",
    "summary": "Extremely fast and featureful command-line fetcher",
-   "license": "MIT",
+   "license": "Apache-2.0",
    "bins": [
     "crabfetch"
    ],
    "verify": true,
    "prio": 2,
    "use": "crabfetch",
-   "topdir": "CrabFetch-0.5.4"
+   "topdir": "CrabFetch-0.5.4",
+   "install_cmd": "install -Dpm0755 target/release/crab-fetch %{buildroot}%{_bindir}/crabfetch"
   },
   {
    "name": "animfetch",

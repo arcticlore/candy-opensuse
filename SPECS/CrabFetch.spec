@@ -3,7 +3,7 @@ Version:        0.5.4
 Release:        1%{?dist}
 Summary:        Extremely fast and featureful command-line fetcher
 
-License:        MIT
+License:        Apache-2.0
 URL:            https://github.com/LivacoNew/CrabFetch
 Source0:        %{name}-%{version}.tar.gz
 Source1:        %{name}-vendor-%{version}.tar.gz
@@ -44,7 +44,7 @@ EOF
 cargo build --release --offline
 
 %install
-install -Dpm0755 target/release/crabfetch %{buildroot}%{_bindir}/crabfetch
+install -Dpm0755 target/release/crab-fetch %{buildroot}%{_bindir}/crabfetch
 
 mkdir -p %{buildroot}%{_licensedir}/%{name}
 for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %{buildroot}%{_licensedir}/%{name}/ || true; done
