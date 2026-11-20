@@ -575,6 +575,20 @@ class TestNoBlindRetryWiring:
             "${{ runner.temp }}/preflight/preflight.json"
         assert env.get("WAVE_BRAKE_FILE") == "logs/retry-brake.json"
 
+    def test_manual_failed_target_retry_is_explicit_and_schedule_safe(self, wf):
+        triggers = wf[True] if True in wf else wf["on"]
+        inp = triggers["workflow_dispatch"]["inputs"]["retry_failed_targets"]
+        assert inp.get("type") == "boolean"
+        assert inp.get("default") is False
+
+        exec_step = next(s for s in wf["jobs"]["package"]["steps"]
+                         if s.get("id") == "exec")
+        cooldown = exec_step.get("env", {}).get("WAVE_COOLDOWN_MIN", "")
+        assert "inputs.retry_failed_targets == true" in cooldown
+        assert "'0'" in cooldown and "'1440'" in cooldown
+        # У schedule inputs нет; только literal true может снять cooldown.
+        assert "github.event_name" not in cooldown
+
     def test_package_downloads_preflight_evidence(self, wf):
         names = [s.get("name", "") for s in wf["jobs"]["package"]["steps"]]
         assert any("Download preflight evidence" in n for n in names)
