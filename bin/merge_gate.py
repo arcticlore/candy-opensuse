@@ -316,9 +316,12 @@ def clear_gated_runs(
 ) -> list[tuple[str, int]]:
     """Снимает gated-run'ы, пока их не останется. Любой отказ = GateError.
 
-    Сначала DELETE (run пустой: ни jobs, ни логов — удаление ничего не прячет),
-    при отказе — approve. Если не вышло ни то, ни другое, волна обязана упасть:
-    молча оставить PR в BLOCKED нельзя.
+    Сначала approve, и только при его отказе — DELETE. Порядок важен: в
+    прогоне 44742332105 удаление сработало («gated run 44746590908: deleted»),
+    но PR #89 остался BLOCKED, а statusCheckRollup у его головного коммита
+    стал пустым — удалённый pull_request-прогон уносит с собой и обязательные
+    контексты, которых ветка ждёт. Approve же даёт прогону отработать и
+    отчитаться контекстами от имени самого PR.
     """
     deadline = clock() + timeout_min * 60
     handled: list[tuple[str, int]] = []
@@ -329,19 +332,19 @@ def clear_gated_runs(
         for run in pending:
             run_id = int(run["id"])
             try:
-                _run([gh, "api", "-X", "DELETE",
-                      f"repos/{repo}/actions/runs/{run_id}"], timeout=60)
-                handled.append(("deleted", run_id))
-                continue
-            except GateError as del_exc:
-                try:
-                    _run([gh, "api", "-X", "POST",
-                          f"repos/{repo}/actions/runs/{run_id}/approve"], timeout=60)
-                except GateError as approve_exc:
-                    raise GateError(
-                        f"gated run {run_id} не снят: delete={del_exc}; "
-                        f"approve={approve_exc}") from approve_exc
+                _run([gh, "api", "-X", "POST",
+                      f"repos/{repo}/actions/runs/{run_id}/approve"], timeout=60)
                 handled.append(("approved", run_id))
+                continue
+            except GateError as approve_exc:
+                try:
+                    _run([gh, "api", "-X", "DELETE",
+                          f"repos/{repo}/actions/runs/{run_id}"], timeout=60)
+                except GateError as del_exc:
+                    raise GateError(
+                        f"gated run {run_id} не снят: approve={approve_exc}; "
+                        f"delete={del_exc}") from del_exc
+                handled.append(("deleted", run_id))
         if clock() >= deadline:
             raise GateError(
                 f"таймаут {timeout_min} мин: gated run'ы на {head_sha} не исчезли")
