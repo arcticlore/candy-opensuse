@@ -334,6 +334,15 @@ class TestSyncGate:
         try:
             assert sync_gate.violations("HEAD",
                                         sync_gate.parse_promoted(self._promoted())) == []
+            # И тот же путь, но отслеживаемый: reconcile run 44775690413
+            # отказался коммитить волну 5/5 именно потому, что
+            # logs/wave-report.json лежал в индексе.
+            subprocess.run(["git", "add", "-f", "logs/wave-report.json"], check=True)
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t",
+                            "commit", "-qm", "track the report"], check=True)
+            (repo / "logs/wave-report.json").write_text('{"counts": {"promoted": 1}}')
+            assert sync_gate.violations("HEAD",
+                                        sync_gate.parse_promoted(self._promoted())) == []
         finally:
             os.chdir(cwd)
 

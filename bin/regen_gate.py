@@ -110,8 +110,12 @@ def git_changed_paths(root: str | Path) -> list[str] | None:
         path = parts[-1].strip().strip('"')
         if not path:
             continue
-        # untracked-мусор job'а не считаем изменением репозитория
-        if line[:2] == "??" and path.startswith(SCRATCH_PREFIXES):
+        # Мусор job'а не считаем изменением репозитория — и неважно,
+        # отслеживается он или нет. Раньше условие требовало "??", поэтому
+        # ОТСЛЕЖИВАЕМЫЙ logs/wave-report.json, который переписывает каждая
+        # волна, проходил фильтр и ронял scope-гейт: reconcile run
+        # 44775690413 отказался коммитить при 5/5 promoted.
+        if path.startswith(SCRATCH_PREFIXES):
             continue
         out.append(path)
     return out

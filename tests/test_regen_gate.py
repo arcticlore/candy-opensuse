@@ -202,6 +202,16 @@ class TestGitChangedPaths:
             (tmp_path / d / name).write_text("{}")
         assert gate.git_changed_paths(tmp_path) == [], \
             "мусор job'а попал в scope"
+        # Тот же мусор, но ОТСЛЕЖИВАЕМЫЙ: именно так logs/wave-report.json
+        # ронял reconcile (run 44775690413) — файл лежал в индексе, волна его
+        # переписывала, и scope-гейт видел «неожиданный путь».
+        subprocess.run(["git", "add", "-f", "logs/wave-report.json"],
+                       cwd=tmp_path, check=True)
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t",
+                        "commit", "-qm", "track the report"], cwd=tmp_path, check=True)
+        (tmp_path / "logs/wave-report.json").write_text('{"counts": {"promoted": 5}}')
+        assert gate.git_changed_paths(tmp_path) == [], \
+            "отслеживаемый scratch-путь всё ещё ломает scope"
         # настоящие изменения при этом всё равно видны
         (tmp_path / "SPECS/a.spec").write_text("Name: a\nVersion: 2\n")
         (tmp_path / "bin_evil.py").write_text("x\n")
