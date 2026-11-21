@@ -1,5 +1,5 @@
 Name:           hollywood
-Version:        1.25
+Version:        1.26
 Release:        1%{?dist}
 Summary:        Fill your console with Hollywood melodrama technobabble
 
@@ -50,5 +50,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 /usr/libexec/hollywood
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.25-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.26-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
