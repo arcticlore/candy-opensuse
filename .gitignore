@@ -5,6 +5,9 @@ state/.lock
 state/.global.lock
 state/.shard-*.lock
 logs/*.log
+# per-run отчёт волны: его переписывает каждый reconcile, а трекинг делал
+# рабочее дерево грязным и ронял regen/sync-гейты (run 44775690413).
+logs/wave-report.json
 *.tmp
 *.aria2
 __pycache__/

@@ -56,12 +56,15 @@ def changed_paths(base: str) -> list[str]:
     paths.update(line.strip() for line in out.splitlines() if line.strip())
     # untracked: новые спеки сюда попадают, мусор job'а — нет
     out = _git("ls-files", "--others", "--exclude-standard")
-    paths.update(line.strip() for line in out.splitlines()
-                 if line.strip() and not line.strip().startswith(SCRATCH_PREFIXES))
+    paths.update(line.strip() for line in out.splitlines() if line.strip())
     # удалённые
     out = _git("diff", "--name-only", "--diff-filter=D", base)
     paths.update(line.strip() for line in out.splitlines() if line.strip())
-    return sorted(paths)
+    # Scratch-каталоги job'а отсеиваем в самом конце — раньше фильтр стоял
+    # только на untracked-ветке, и отслеживаемый logs/wave-report.json
+    # (его переписывает каждая волна) объявлялся посторонним путём, из-за
+    # чего reconcile run 44775690413 не закоммитил чистую волну 5/5.
+    return sorted(p for p in paths if not p.startswith(SCRATCH_PREFIXES))
 
 
 def parse_promoted(raw: str) -> dict[str, str]:
