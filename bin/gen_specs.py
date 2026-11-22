@@ -76,6 +76,8 @@ class Package:
     release: int = 1
     license_file: str = ""
     license_files: list[str] = field(default_factory=list)
+    noarch: bool = False
+    provides: list[str] = field(default_factory=list)
 
     def is_enabled(self) -> bool:
         """Check if package is enabled."""
@@ -166,6 +168,8 @@ def load_pkgs(path: Path) -> PkgsFile:
                 release=p.get("release", 1),
                 license_file=p.get("license_file", ""),
                 license_files=p.get("license_files", []),
+                noarch=p.get("noarch", False),
+                provides=p.get("provides", []),
             )
         )
 
@@ -974,6 +978,15 @@ def render(name: str, ver: str, meta: dict[str, Package]) -> str:
         secs = "%prep" + secs
     else:
         tags, secs = body, ""
+
+    # Дополнительные теги из pkgs.json: noarch (BuildArch) и provides.
+    # body уже может содержать BuildArch (script/python-script/npm) — не дублируем.
+    extra_tags = []
+    if m.noarch and "BuildArch" not in tags:
+        extra_tags.append("BuildArch:      noarch")
+    extra_tags += [f"Provides:       {p}" for p in m.provides]
+    if extra_tags:
+        tags = "\n".join(extra_tags) + "\n" + tags
 
     parts = ["\n".join(head_lines), "", tags.strip()]
 

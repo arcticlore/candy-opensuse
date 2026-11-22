@@ -791,23 +791,6 @@
    "topdir": "duckpond.sh-00c96ca8a247be79fb961773770799fee5e54758"
   },
   {
-   "name": "lifecycler",
-   "eco": "python-script",
-   "host": "github",
-   "slug": "tobi-wan-kenobi/lifecycler",
-   "tagp": "v",
-   "summary": "Aquarium right in your terminal",
-   "license": "GPL-2.0-only",
-   "bins": [
-    "lifecycler"
-   ],
-   "verify": true,
-   "prio": 9,
-   "use": "lifecycler — аквариум/клеточный автомат",
-   "enabled": false,
-   "note": "Апстрим недоступен (404) / пакет удалён из registry"
-  },
-  {
    "name": "maze",
    "eco": "python-script",
    "host": "github",
@@ -886,7 +869,7 @@
    "name": "shuffle",
    "eco": "script",
    "host": "github",
-   "slug": "wyjok/shuffle",
+   "slug": "Lennart1978/shuffle",
    "tagp": "v",
    "summary": "ASCII art with a cool shuffle effect",
    "license": "MIT",
@@ -1046,26 +1029,6 @@
    "prio": 9,
    "enabled": false,
    "note": "Апстрим недоступен (404) / пакет удалён из registry"
-  },
-  {
-   "name": "fireworks",
-   "eco": "script",
-   "host": "web",
-   "url": "https://archive.org/download/bash-fireworks/fireworks.sh",
-   "version": "1.0",
-   "summary": "Bash fireworks screensaver",
-   "license": "GPL-2.0-only",
-   "files": [
-    "fireworks.sh"
-   ],
-   "req": [
-    "bash"
-   ],
-   "interp": "bash",
-   "prio": 3,
-   "use": "fireworks.sh — фейерверк",
-   "enabled": false,
-   "note": "Источник недоступен с этой сети (archive.org/sourceforge); включить при смене сети"
   },
   {
    "name": "cli-fx",
@@ -1518,28 +1481,6 @@
    "topdir": "%{name}-%{version}"
   },
   {
-   "name": "cli-visualizer",
-   "eco": "c-cmake",
-   "host": "github",
-   "slug": "dpayne/cli-visualizer",
-   "tagp": "",
-   "summary": "CLI audio visualizer for mpd/alsa/pulse",
-   "license": "MIT",
-   "br": [
-    "cmake",
-    "fftw-devel",
-    "gcc-c++",
-    "ncurses-devel",
-    "pulseaudio-libs-devel"
-   ],
-   "verify": true,
-   "exp": true,
-   "prio": 9,
-   "use": "vis — визуализатор звука (mpd/alsa/pulse)",
-   "enabled": false,
-   "note": "Апстрим недоступен (404) / пакет удалён из registry"
-  },
-  {
    "name": "linuxwave",
    "eco": "prebuilt",
    "host": "github",
@@ -1563,49 +1504,6 @@
     "x86_64": "linuxwave-%{version}-x86_64-linux.tar.gz",
     "aarch64": "linuxwave-%{version}-aarch64-linux.tar.gz"
    }
-  },
-  {
-   "name": "chucknorris",
-   "eco": "script",
-   "host": "github",
-   "slug": "bfontaine/chucknorris",
-   "tagp": "",
-   "summary": "Chuck Norris jokes in your terminal",
-   "license": "MIT",
-   "files": [
-    "bin/chucknorris"
-   ],
-   "req": [
-    "ruby"
-   ],
-   "interp": "ruby",
-   "verify": true,
-   "prio": 9,
-   "enabled": false,
-   "note": "Апстрим-слаг не найден, пакет отключён до уточнения"
-  },
-  {
-   "name": "hack",
-   "eco": "script",
-   "host": "github",
-   "slug": "ivanovmg/hack",
-   "tagp": "",
-   "summary": "Simulate Hollywood hacking in your terminal",
-   "license": "GPL-3.0-or-later",
-   "files": [
-    "hack.sh"
-   ],
-   "bins": [
-    "hack"
-   ],
-   "req": [
-    "bash"
-   ],
-   "interp": "bash",
-   "verify": true,
-   "prio": 9,
-   "enabled": false,
-   "note": "Апстрим-слаг не найден, пакет отключён до уточнения"
   },
   {
    "name": "rickrollrc",
@@ -2005,7 +1903,7 @@
    "name": "zenith",
    "eco": "cargo",
    "host": "github",
-   "slug": "bvaisnard/zenith",
+   "slug": "bvaisvil/zenith",
    "tagp": "v",
    "summary": "Системный дашборд: CPU/GPU/сеть/диски графиками",
    "license": "MIT",
@@ -2860,6 +2758,217 @@
    "prio": 3,
    "use": "tetro-tui",
    "topdir": "tetro-tui-v3.6.2"
+  },
+  {
+   "name": "scrap-engine",
+   "eco": "python-pkg",
+   "host": "pypi",
+   "pkg": "scrap-engine",
+   "topdir": "scrap_engine-1.5.4",
+   "prep_extra": "rm -rf src/tests",
+   "summary": "A 2D ascii game engine for the terminal",
+   "license": "GPL-3.0-only",
+   "enabled": true,
+   "noarch": true,
+   "provides": [
+    "python3-scrap-engine"
+   ],
+   "verify": true,
+   "prio": 4,
+   "use": "import scrap_engine — терминальный 2D ascii-движок (нужен pokete)",
+   "note": "noarch, сборится из sdist PyPI; Provides python3-scrap-engine для Requires у pokete"
+  },
+  {
+   "name": "television",
+   "eco": "cargo",
+   "host": "github",
+   "slug": "alexpasmantier/television",
+   "summary": "Быстрый fuzzy-поиск по файлам, истории, git и процессам (tv)",
+   "license": "MIT",
+   "bins": [
+    "tv"
+   ],
+   "prio": 2,
+   "use": "tv — общий fuzzy-искатель; tv files, tv env",
+   "alt": "cargo install television --locked",
+   "topdir": "%{name}-%{version}"
+  },
+  {
+   "name": "gitu",
+   "eco": "cargo",
+   "host": "github",
+   "slug": "altsem/gitu",
+   "tagp": "v",
+   "summary": "Git-клиент в терминале в духе magit",
+   "license": "MIT",
+   "bins": [
+    "gitu"
+   ],
+   "br": [
+    "pkgconf-pkg-config",
+    "zlib-devel",
+    "perl"
+   ],
+   "req": [
+    "git-core"
+   ],
+   "prio": 2,
+   "use": "gitu — внутри git-репозитория",
+   "alt": "cargo install gitu",
+   "topdir": "%{name}-%{version}"
+  },
+  {
+   "name": "oxker",
+   "eco": "cargo",
+   "host": "github",
+   "slug": "mrjackwills/oxker",
+   "tagp": "v",
+   "summary": "TUI-мониторинг docker/podman-контейнеров",
+   "license": "MIT",
+   "bins": [
+    "oxker"
+   ],
+   "prio": 3,
+   "use": "oxker — логи и статистика контейнеров",
+   "alt": "cargo install oxker",
+   "topdir": "%{name}-%{version}"
+  },
+  {
+   "name": "impala",
+   "eco": "cargo",
+   "host": "github",
+   "slug": "pythops/impala",
+   "tagp": "v",
+   "summary": "Управление Wi-Fi из терминала (бэкенд iwd)",
+   "license": "GPL-3.0-only",
+   "bins": [
+    "impala"
+   ],
+   "req": [
+    "iwd"
+   ],
+   "prio": 3,
+   "use": "impala — сети, подключение, пароль",
+   "alt": "cargo install impala",
+   "topdir": "%{name}-%{version}"
+  },
+  {
+   "name": "systemctl-tui",
+   "eco": "cargo",
+   "host": "github",
+   "slug": "rgwood/systemctl-tui",
+   "tagp": "v",
+   "summary": "Просмотр и управление systemd-юнитами в терминале",
+   "license": "MIT",
+   "bins": [
+    "systemctl-tui"
+   ],
+   "prio": 3,
+   "install_cmd": "install -Dpm0755 target/release/systemctl-tui %{buildroot}%{_bindir}/systemctl-tui",
+   "use": "systemctl-tui — список юнитов, логи, start/stop",
+   "alt": "cargo install systemctl-tui",
+   "topdir": "%{name}-%{version}"
+  },
+  {
+   "name": "rainfrog",
+   "eco": "cargo",
+   "host": "github",
+   "slug": "achristmascarl/rainfrog",
+   "tagp": "v",
+   "summary": "TUI-клиент БД (postgres/mysql/sqlite)",
+   "license": "MIT",
+   "bins": [
+    "rainfrog"
+   ],
+   "prio": 3,
+   "use": "rainfrog --url postgres://…",
+   "alt": "cargo install rainfrog",
+   "topdir": "%{name}-%{version}"
+  },
+  {
+   "name": "serpl",
+   "eco": "cargo",
+   "host": "github",
+   "slug": "yassinebridi/serpl",
+   "summary": "Поиск и замена по проекту в терминале (на базе ripgrep)",
+   "license": "MIT",
+   "bins": [
+    "serpl"
+   ],
+   "req": [
+    "ripgrep"
+   ],
+   "prio": 3,
+   "use": "serpl — в корне проекта",
+   "alt": "cargo install serpl",
+   "topdir": "%{name}-%{version}"
+  },
+  {
+   "name": "krabby",
+   "eco": "cargo",
+   "host": "github",
+   "slug": "yannjor/krabby",
+   "tagp": "v",
+   "summary": "Печать спрайтов покемонов в терминале",
+   "license": "GPL-3.0-only",
+   "bins": [
+    "krabby"
+   ],
+   "prio": 9,
+   "use": "krabby random — для .bashrc",
+   "alt": "cargo install krabby",
+   "topdir": "%{name}-%{version}"
+  },
+  {
+   "name": "dvd-term",
+   "eco": "cargo",
+   "host": "github",
+   "slug": "alefnull/dvd-term",
+   "tagp": "v",
+   "summary": "Скринсейвер «летающий логотип DVD» в терминале",
+   "license": "Apache-2.0",
+   "bins": [
+    "dvd-term"
+   ],
+   "prio": 9,
+   "use": "dvd-term — выход Q",
+   "alt": "cargo install dvd-term",
+   "note": "Замена удалённого из npm termdvd",
+   "topdir": "%{name}-%{version}"
+  },
+  {
+   "name": "superfile",
+   "eco": "go",
+   "host": "github",
+   "slug": "yorukot/superfile",
+   "tagp": "v",
+   "summary": "Современный файловый менеджер в терминале",
+   "license": "MIT",
+   "bins": [
+    "spf"
+   ],
+   "gpkg": ".",
+   "prio": 2,
+   "use": "spf — панели, превью, работа с файлами",
+   "alt": "github.com/yorukot/superfile#installation",
+   "topdir": "%{name}-%{version}"
+  },
+  {
+   "name": "lazysql",
+   "eco": "go",
+   "host": "github",
+   "slug": "jorgerojas26/lazysql",
+   "tagp": "v",
+   "summary": "TUI-клиент SQL (postgres/mysql/sqlite) в духе lazygit",
+   "license": "MIT",
+   "bins": [
+    "lazysql"
+   ],
+   "gpkg": ".",
+   "prio": 3,
+   "use": "lazysql — подключения и запросы",
+   "alt": "go install github.com/jorgerojas26/lazysql@latest",
+   "topdir": "%{name}-%{version}"
   }
  ]
 }
