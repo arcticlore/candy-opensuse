@@ -15,7 +15,7 @@
 **Unofficial stable COPR repository of terminal eye-candy for openSUSE**
 (a port of [candy-rpm](https://github.com/arcticlore/candy-rpm))
 
-**137 packages** · auto-updated daily · **x86_64 + aarch64**
+**149 packages** · auto-updated daily · **x86_64 + aarch64**
 *opensuse-tumbleweed · opensuse-leap-16.0*
 
 </div>
