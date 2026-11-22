@@ -13,6 +13,7 @@
 """
 import json
 import os
+import shutil
 import subprocess
 
 import pytest
@@ -560,3 +561,62 @@ class TestPreflightEvidenceOutsideCheckout:
                 if s.get("name") == "Download preflight evidence":
                     assert not str(s.get("with", {}).get("path", "")).startswith(
                         "preflight"), f"{job}: evidence снова в дереве"
+
+
+class TestEmptyWaveIsReachableSuccess:
+    """Пустая волна обязана завершаться успехом, а не падать на pipefail.
+
+    Шаг «Merge per-package reports» считал отчёты через
+    `ls logs/report-*.json 2>/dev/null | wc -l`. При нуле отчётов ls отдаёт 2,
+    `set -o pipefail` поднимает этот код до статуса присваивания, а `set -e`
+    убивает шаг — ПЕРЕД веткой «пустой план (plan_size=0) — это успех».
+    Ветка успеха была недостижимым кодом, и волна, в которой все цели уже
+    достигнуты, всегда падала с exit 2. Тест выполняет настоящий скрипт шага.
+    """
+
+    @staticmethod
+    def _step(wf):
+        return next(s for s in wf["jobs"]["reconcile"]["steps"]
+                    if s.get("id") == "merge")
+
+    @staticmethod
+    def _run(script, tmp_path, plan, plan_size):
+        import subprocess
+        (tmp_path / "logs").mkdir(exist_ok=True)
+        (tmp_path / "bin").mkdir(exist_ok=True)
+        shutil.copy(os.path.join(ROOT, "bin/wave_report_gate.py"),
+                    tmp_path / "bin/wave_report_gate.py")
+        (tmp_path / "plan-artifact").mkdir(exist_ok=True)
+        (tmp_path / "plan-artifact/plan.json").write_text(json.dumps(plan))
+        env = {**os.environ, "PLAN_RESULT": "success", "PLAN_SIZE": str(plan_size),
+               "PLAN_PAUSED": "false", "PREFLIGHT_ONLY": "false"}
+        return subprocess.run(["sh", "-e", "-c", script], cwd=tmp_path, env=env,
+                              capture_output=True, text=True)
+
+    def test_no_ls_pipe_wc_in_the_step(self, wf):
+        """Проверяем исполняемые строки: в комментарии ls упомянут намеренно."""
+        code = [ln for ln in self._step(wf)["run"].splitlines()
+                if not ln.lstrip().startswith("#")]
+        offenders = [ln for ln in code if "ls " in ln and "wc -l" in ln]
+        assert not offenders, (
+            f"ls в пайпе под pipefail делает ветку пустой волны "
+            f"недостижимой: {offenders}")
+
+    def test_empty_plan_without_reports_succeeds(self, wf, tmp_path):
+        r = self._run(self._step(wf)["run"], tmp_path,
+                      {"packages": [], "plan_size": 0}, 0)
+        assert r.returncode == 0, (
+            f"пустая волна должна быть успехом, rc={r.returncode}\n"
+            f"stdout={r.stdout}\nstderr={r.stderr}")
+        report = json.loads((tmp_path / "logs/wave-report.json").read_text())
+        assert report["items"] == [] and report["counts"] == {}
+        assert "это успех" in r.stdout
+
+    def test_nonempty_plan_without_reports_still_fails(self, wf, tmp_path):
+        """Фикс не должен превратить потерю отчётов в молчаливый успех."""
+        r = self._run(self._step(wf)["run"], tmp_path,
+                      {"packages": [{"name": "zellij", "target": "0.46.0"}],
+                       "plan_size": 1}, 1)
+        assert r.returncode != 0, "непустой план без отчётов обязан падать"
+        assert not (tmp_path / "logs/wave-report.json").exists(), (
+            "при провале отчёт волны писаться не должен")
