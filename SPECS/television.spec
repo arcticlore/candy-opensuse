@@ -1,5 +1,5 @@
 Name:           television
-Version:        0
+Version:        0.15.9
 Release:        1%{?dist}
 Summary:        Быстрый fuzzy-поиск по файлам, истории, git и процессам (tv)
 
@@ -54,5 +54,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/tv
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 0.15.9-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)

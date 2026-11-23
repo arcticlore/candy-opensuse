@@ -1,5 +1,5 @@
 Name:           impala
-Version:        0
+Version:        0.9.0
 Release:        1%{?dist}
 Summary:        Управление Wi-Fi из терминала (бэкенд iwd)
 
@@ -55,5 +55,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/impala
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 0.9.0-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
