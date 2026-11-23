@@ -10,7 +10,6 @@
 | **bottom** | Cross-platform graphical process/system monitor | `btm — монитор процессов с графиками` | github.com/ClementTsang/bottom |
 | **broot** | Дерево каталогов с навигацией и предпросмотром | `broot — интерактивное дерево файлов` | github.com/Canop/broot |
 | **csview** | Быстрый csv-просмотрщик с поддержкой CJK/эмодзи | `—` | github.com/wfxr/csview |
-| **curlie** | The power of curl, the ease of use of httpie | `curlie https://api.github.com` | github.com/rs/curlie |
 | **delta** | Подсветка синтаксиса для git diff/blame/grep, pager для df | `delta -- pager для git; git config core.pager delta` | github.com/dandavison/delta |
 | **doggo** | Fast command-line DNS client for humans | `doggo example.com MX` | github.com/mr-karan/doggo |
 | **fx** | Terminal JSON viewer and processor | `cat data.json | fx — интерактивный JSON` | github.com/antonmedv/fx |
@@ -25,14 +24,12 @@
 | **mise** | Менеджер рантаймов node/python/ruby — быстрый asdf-killer | `mise use --pin node@22` | github.com/jdx/mise |
 | **oha** | HTTP бенчмарк с красивым TUI | `oha -n 200 https://example.com` | github.com/hatoo/oha |
 | **scc** | Счётчик строк кода по языкам — быстрее cloc | `scc ./project` | github.com/boyter/scc |
-| **sd** | Intuitive find & replace CLI (sed alternative) | `sd 'старый текст' 'новый текст' file.txt` | github.com/chmln/sd |
 | **starship** | Minimal, blazing-fast, infinitely customizable cross-shell prompt | `eval "$(starship init bash)" — добавь в ~/.bashrc` | github.com/starship/starship |
 | **tealdeer** | Быстрый tldr-client: примеры команд вместо man | `tldr tar — шпаргалки` | github.com/dbrgn/tealdeer |
 | **tokei** | Статистика кода по языкам, молниеносная | `tokei ./src` | github.com/XAMPPRocky/tokei |
 | **trippy** | Гибрид mtr/traceroute с живым TUI | `sudo trip example.com` | github.com/fujiapple852/trippy |
 | **viddy** | Modern watch command (with key bindings and diffs) | `viddy 'df -h' — watch с подсветкой diff` | github.com/sachaos/viddy |
 | **watchexec** | Перезапуск команд при изменении файлов | `watchexec -- make test` | github.com/watchexec/watchexec |
-| **xh** | Friendly and fast tool for sending HTTP requests | `xh GET https://api.github.com` | github.com/ducaale/xh |
 | **yazi** | Blazing fast terminal file manager written in Rust | `yazi — файловый менеджер; выход Q` | github.com/sxyazi/yazi |
 | **albafetch** | Faster neofetch alternative written in C | `albafetch` | github.com/alba4k/albafetch |
 | **animfetch** | Animated system fetch pinned above your shell | `animfetch — анимированный fetch` | github.com/Andrew-Velox/animfetch |
@@ -47,7 +44,6 @@
 | **ghfetch** | Neofetch-like utility to fetch GitHub info in the terminal | `ghfetch <логин-github>` | github.com/SafarSoFar/ghfetch |
 | **gitfetch** | GitHub contribution visualization tool inspired by neofetch | `gitfetch <логин-github>` | github.com/FabricSoul/gitfetch |
 | **gitui** | TUI-интерфейс для git ( staging, branches, interactive rebase ) | `gitui — в папке репозитория` | github.com/gitui-org/gitui |
-| **grex** | Генератор регулярок из примеров строк | `grex a1 b2 → '^a[12]b[12]$'` | github.com/pemistahl/grex |
 | **kondo** | Чистка build-артефактов проектов (node_modules/target) | `kondo ~/dev — найти мусор` | github.com/tbillington/kondo |
 | **macchina** | System information fetcher with an emphasis on performance | `macchina — инфа о системе` | github.com/Macchina-CLI/macchina |
 | **navi** | Интерактивные шпаргалки ( cheatsheets ) для командной строки | `navi widget bash|zsh` | github.com/denisidoro/navi |
@@ -63,7 +59,6 @@
 | **slides** | Презентации прямо в терминале из markdown | `slides deck.md — презентация` | github.com/maaslalani/slides |
 | **ufetch** | Tiny system info for Unix-like operating systems | `ufetch` | gitlab.com/jschx/ufetch |
 | **wtfutil** | Личный дашборд-терминал из модулей (ops-style) | `wtfutil — дашборд модулей` | github.com/wtfutil/wtfutil |
-| **zk** | Zettelkasten-заметки в терминале | `zk new; zk list` | github.com/zk-org/zk |
 | **arttime** | ASCII art, clock, timer and time manager for the terminal | `arttime — ASCII-арт+часы; arttime -m сообщение` | github.com/poetaman/arttime |
 | **ascii-image-converter** | Конвертация изображений в ASCII-art прямо в терминале | `ascii-image-converter photo.jpg --color` | github.com/TheZoraiz/ascii-image-converter |
 | **ascii-rain** | Comfy rain for your console | `ascii-rain — дождь, Ctrl+C выход` | github.com/nkleemann/ascii-rain |
@@ -92,30 +87,23 @@
 | **terminaltexteffects** | Terminal text effects engine — анимации печати и эффектов в терминале | `tte "твой текст" — эффекты печати; tte --list-effects` | pypi.org/project/terminaltexteffects |
 | **termshot** | Скриншот команды в виде терминального окна | `termshot --out shot.png -- ls -la` | github.com/homeport/termshot |
 | **tfire** | Fire animation in your terminal | `tfire.sh — огонь` | github.com/tech-chad/tfire |
-| **toipe** | Тест скорости печати на Rust, специальный для ( true touch typing ) | `toipe — запуск без аргументов` | github.com/Samyak2/toipe |
 | **tspace** | Fly a little spaceship around your terminal | `tspace.sh — кораблик` | github.com/mtklr/tspace |
 | **tty-clock** | Digital clock in ncurses | `tty-clock -c -C 4 — часы по центру, цвет 4` | github.com/xorg62/tty-clock |
 | **tty-solitaire** | Пасьянс в терминале на ncurses | `ttysolitaire — режим клавиатуры h,j,k,l` | github.com/mpereira/tty-solitaire |
-| **ttyper** | Тренажёр слепой печати в терминале | `ttyper — тест слепой печати (ru: --language ru1000)` | github.com/max-niederman/ttyper |
 | **ttysvr** | Набор скринсейверов для терминала | `—` | github.com/cxreiff/ttysvr |
-| **typioca** | Минималистичный тест скорости печати | `typioca — печать на скорость` | github.com/bloznelis/typioca |
 | **unimatrix** | Матрица из unicode-символов (гибкий аналог cmatrix) | `unimatrix -s 96 — unicode-матрица` | github.com/will8211/unimatrix |
 | **weave** | Weaving pattern screensaver | `weave.sh — плетение узоров` | github.com/pipeseroni/weave.sh |
 | **zenta** | Meditative zen terminal screensaver | `zenta.sh — дзен-скринсейвер` | github.com/e6a5/zenta |
-| **artem** | Convert images from multiple formats to ASCII art | `artem photo.jpg — картинка в ASCII` | github.com/FineFindus/artem |
 | **cadubi** | Creative ASCII drawing utility | `cadubi — рисование ASCII` | github.com/statico/cadubi |
 | **diagram** | ASCII-диаграммы из текста | `diagram --svg out.svg in.txt` | github.com/esimov/diagram |
 | **dog** | DNS-клиент doggo-класса с цветным выводом | `—` | github.com/ogham/dog |
 | **durdraw** | ANSI/ASCII and Unicode art editor with animation | `durdraw — редактор ANSI-арта` | github.com/cmang/durdraw |
-| **jp2a** | Convert JPG/PNG images to ASCII art | `jp2a photo.jpg --width=80` | github.com/Talinx/jp2a |
 | **parrotsay** | Party parrot says things in your terminal | `parrotsay 'Привет!'` | npmjs.com/package/parrotsay |
 | **ponysay** | cowsay reimplemention for ponies, 256-color | `ponysay 'Привет!' или ponysay -l список пони` | github.com/erkin/ponysay |
 | **pscircle** | Visualize processes as a circular tree wallpaper | `pscircle --output=pscircle.png — процессы кругом` | gitlab.com/mildlyparallel/pscircle |
 | **ricksay** | Rick and Morty quotes of the day (cowsay clone) | `ricksay — цитата Рика и Морти` | github.com/kochie/ricksay |
 | **tulizu** | Tool to customize ASCII art in /etc/issue | `tulizu --help — арт для /etc/issue` | github.com/loh-tar/tulizu |
-| **viu** | View images right from the terminal | `viu photo.jpg — картинка прямо в терминале` | github.com/atanunq/viu |
 | **yosay** | Tell Yeoman what to say, ANSI-art speech bubbles | `yosay 'Привет!'` | github.com/yeoman/yosay |
-| **choose** | Умный cut на Rust | `—` | github.com/theryangeary/choose |
 | **erdtree** | Анализ дерева каталогов с размерами | `ert — размеры по папкам` | github.com/solidiquis/erdtree |
 | **flavours** | Manager and builder for Base16 base00-FF schemes | `flavours apply gruvbox-dark` | github.com/Misterio77/flavours |
 | **linuxwave** | Generate music from the entropy of Linux | `linuxwave -o out.wav — музыка из энтропии` | github.com/orhun/linuxwave |
@@ -133,7 +121,6 @@
 | **rmpc** | Красивый TUI клиент MPD | `rmpc — нужен запущенный mpd` | github.com/mierak/rmpc |
 | **systeroid** | sysctl(8) с TUI-графикой | `systeroid --tui` | github.com/orhun/systeroid |
 | **termusic** | TUI музыкальный плеер (mpv/ytdlp) | `—` | github.com/tramhao/termusic |
-| **zenith** | Системный дашборд: CPU/GPU/сеть/диски графиками | `zenith` | github.com/bvaisnard/zenith |
 | **colorls** | Prettifies ls output with colors and font-awesome icons | `colorls — красивый ls (нужен Nerd Font)` | github.com/athityakumar/colorls |
 | **musikcube** | Terminal-based music player, library and streaming server | `musikcube — консольный плеер` | github.com/clangen/musikcube |
 | **peaclock** | Часы/секундомер/таймер с цветными цифрами | `peaclock` | github.com/octobanana/peaclock |

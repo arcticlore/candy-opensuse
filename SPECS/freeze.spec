@@ -18,7 +18,7 @@ BuildRequires:  go
 Красивые картинки из кода и вывода терминала
 
 ВНИМАНИЕ: пакет из неофициального стороннего репозитория arcticlore/candy-opensuse.
-Серийная (stable) сборка 174 пакетов для Tumbleweed и Leap 16.0; возможны редкие
+Серийная (stable) сборка 153 пакетов для Tumbleweed и Leap 16.0; возможны редкие
 поломки на свежих релизах апстрима — заводите issue, помидоры не кидаем.
 
 WARNING: this package comes from an UNOFFICIAL third-party repository
