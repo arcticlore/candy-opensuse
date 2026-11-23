@@ -403,9 +403,26 @@ def is_prioritizable(pkg: dict) -> bool:
     return str(pkg.get("enabled", "true")).lower() not in ("false", "0")
 
 
-def prioritize(pkgs: list[dict]):
-    """Сортировка кандидатов: prio (ниже = раньше), затем имя — детерминированно."""
-    return sorted(pkgs, key=lambda p: (p.get("prio", 5), p["name"]))
+def prioritize(pkgs: list[dict], published: dict[str, set[str]] | None = None):
+    """Сортировка кандидатов: prio (ниже = раньше), затем имя — детерминированно.
+
+    Пакет с "boost": true, которого ещё НЕТ в repodata (ни pilot, ни stable),
+    идёт впереди всех — временный высший приоритет до первой успешной сборки.
+
+    Признак «ни разу не собран» здесь — именно repodata, а НЕ state.json:
+    в этом репозитории `coprase-status.py versions` пишет в state.json
+    целевые версии ещё до всякой сборки, поэтому наличие записи там ничего
+    не доказывает. Публикация в repodata — доказывает.
+
+    Буст снимается САМ: как только пакет опубликован, условие перестаёт
+    выполняться и он встаёт на своё обычное место по prio.
+    """
+    pub = published or {}
+    return sorted(
+        pkgs,
+        key=lambda p: (0 if (p.get("boost") and not pub.get(p["name"])) else 1,
+                       p.get("prio", 5), p["name"]),
+    )
 
 
 def probe_all(project: str, chroots: list[str]) -> dict:
@@ -496,8 +513,15 @@ def build_plan(
     if max_wave < 1:
         raise WavePlanError("max_wave должен быть >= 1")
     stable_hist = stable_hist or {}
+    # «Уже где-то опубликован» = есть в repodata pilot ИЛИ stable. Только это
+    # снимает boost (см. prioritize): state.json тут хранит цели, не факты.
+    seen_published: dict[str, set[str]] = {}
+    for src in (pilot_published, stable_published):
+        for pkg_name, vers in (src or {}).items():
+            if vers:
+                seen_published.setdefault(pkg_name, set()).update(vers)
     plan: list[dict] = []
-    for p in prioritize(pkgs):
+    for p in prioritize(pkgs, seen_published):
         name = p["name"]
         target = versions.get(name, "")
         if not target:

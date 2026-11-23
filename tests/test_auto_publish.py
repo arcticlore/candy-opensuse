@@ -1468,3 +1468,49 @@ class TestBrakeGate:
         assert mod.main(["run", "--max-wave", "1",
                          "--brake-file", str(brake)]) == 1
         assert "BRAKE-ARMED" in capfd.readouterr().err
+
+
+class TestBoostPriority:
+    """Временный высший приоритет для новых пакетов и его самоснятие."""
+
+    PKGS = [
+        {"name": "starship", "prio": 1},
+        {"name": "zellij", "prio": 1},
+        {"name": "fd", "prio": 2, "boost": True},
+        {"name": "nyancat", "prio": 3, "boost": True},
+    ]
+
+    def test_boosted_first_when_nothing_published(self, mod):
+        got = [p["name"] for p in mod.prioritize(self.PKGS, {})]
+        assert got[:2] == ["fd", "nyancat"]
+        assert got[2:] == ["starship", "zellij"]
+
+    def test_boost_self_clears_once_published(self, mod):
+        """Публикация в repodata снимает буст — pkgs.json править не нужно."""
+        got = [p["name"] for p in mod.prioritize(self.PKGS, {"fd": {"10.5.2"}})]
+        assert got[0] == "nyancat", "nyancat ещё не опубликован"
+        assert got[1:] == ["starship", "zellij", "fd"], "fd вернулся к prio=2"
+
+    def test_empty_version_set_does_not_clear_boost(self, mod):
+        """Пустое множество версий — это НЕ публикация."""
+        got = [p["name"] for p in mod.prioritize(self.PKGS, {"fd": set()})]
+        assert got[0] == "fd"
+
+    def test_all_published_is_plain_prio_order(self, mod):
+        pub = {"fd": {"1"}, "nyancat": {"1"}}
+        got = [p["name"] for p in mod.prioritize(self.PKGS, pub)]
+        assert got == ["starship", "zellij", "fd", "nyancat"]
+
+    def test_without_boost_matches_legacy_ordering(self, mod):
+        plain = [{"name": n, "prio": i} for i, n in enumerate("dcba")]
+        assert [p["name"] for p in mod.prioritize(plain)] == \
+               [p["name"] for p in sorted(plain, key=lambda p: (p["prio"], p["name"]))]
+
+    def test_state_json_entry_does_not_clear_boost(self, mod):
+        """Ключевое отличие от Fedora: цель в state.json ничего не доказывает.
+
+        coprase-status.py versions пишет туда целевые версии ещё до сборки,
+        поэтому буст снимает только repodata.
+        """
+        got = [p["name"] for p in mod.prioritize(self.PKGS, published={})]
+        assert got[:2] == ["fd", "nyancat"]
