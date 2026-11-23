@@ -25,7 +25,7 @@ Requires:       git-core
 Git-клиент в терминале в духе magit
 
 ВНИМАНИЕ: пакет из неофициального стороннего репозитория arcticlore/candy-opensuse.
-Серийная (stable) сборка 161 пакетов для Tumbleweed и Leap 16.0; возможны редкие
+Серийная (stable) сборка 174 пакетов для Tumbleweed и Leap 16.0; возможны редкие
 поломки на свежих релизах апстрима — заводите issue, помидоры не кидаем.
 
 WARNING: this package comes from an UNOFFICIAL third-party repository
