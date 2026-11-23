@@ -6,6 +6,21 @@ from pathlib import Path
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "bin"))
 
+
+def sample_go_package(pkgs_json):
+    """Имя любого включённого go-пакета из каталога.
+
+    Раньше тесты прибивали сюда конкретное имя, и каталог нельзя было
+    почистить, не уронив их: пакет выбывает (скажем, его начинает
+    поставлять сам дистрибутив) — и тест падает с KeyError, хотя
+    gen_specs.py при этом полностью исправен.
+    """
+    for p in pkgs_json["packages"]:
+        if p.get("eco") == "go" and p.get("enabled", True) is not False:
+            return p["name"]
+    raise AssertionError("в pkgs.json нет ни одного включённого go-пакета")
+
+
 class TestGenSpecs:
     """Тесты для gen_specs.py"""
 
@@ -229,14 +244,17 @@ class TestGenSpecs:
         idempotency. CLI обязан писать файл, а spec — не утекать в stdout.
         """
         import gen_specs, re
-        pkg = next(p for p in pkgs_json["packages"] if p["name"] == "duf")
-        out = tmp_path / "SPECS" / "duf.spec"
+        # Имя берём из каталога, а не прибиваем гвоздями: пакеты приходят и
+        # уходят (например, выбывают, когда их начинает поставлять сам
+        # дистрибутив), и тест не должен от этого краснеть.
+        name = sample_go_package(pkgs_json)
+        out = tmp_path / "SPECS" / f"{name}.spec"
         monkeypatch.setattr(sys, "argv",
-                            ["gen_specs.py", "duf", "9.9.9", "--out", str(out)])
+                            ["gen_specs.py", name, "9.9.9", "--out", str(out)])
         gen_specs.main()
         captured = capsys.readouterr()
         spec = out.read_text()
-        assert re.search(r"^Name:\s+duf\s*$", spec, re.MULTILINE)
+        assert re.search(rf"^Name:\s+{re.escape(name)}\s*$", spec, re.MULTILINE)
         assert re.search(r"^Version:\s+9\.9\.9\s*$", spec, re.MULTILINE)
         assert "%changelog" in spec
         assert captured.out.strip() == "", "spec не должен утекать в stdout"
@@ -244,13 +262,15 @@ class TestGenSpecs:
 
     def test_out_matches_render(self, tmp_path):
         """--out пишет ровно то, что отдал бы render()."""
-        import gen_specs
+        import gen_specs, json
         from pathlib import Path
-        meta = gen_specs.make_meta(
-            gen_specs.load_pkgs(Path(ROOT) / "pkgs.json"))
-        out = tmp_path / "duf.spec"
-        gen_specs.write_spec_atomic("duf", "1.2.3", meta, out)
-        assert out.read_text() == gen_specs.render("duf", "1.2.3", meta)
+        pkgs = gen_specs.load_pkgs(Path(ROOT) / "pkgs.json")
+        meta = gen_specs.make_meta(pkgs)
+        name = sample_go_package(json.loads(
+            (Path(ROOT) / "pkgs.json").read_text()))
+        out = tmp_path / f"{name}.spec"
+        gen_specs.write_spec_atomic(name, "1.2.3", meta, out)
+        assert out.read_text() == gen_specs.render(name, "1.2.3", meta)
 
     def test_validate_rejects_bad_specs(self):
         import gen_specs

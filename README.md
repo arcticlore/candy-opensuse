@@ -33,7 +33,7 @@ sudo zypper addrepo --refresh \
   "https://copr.fedorainfracloud.org/coprs/arcticlore/candy-opensuse/repo/opensuse-tumbleweed-$basearch/arcticlore-candy-opensuse.repo" \
   arcticlore-candy-opensuse
 sudo zypper --gpg-auto-import-keys refresh
-sudo zypper install linuxwave   # или любой другой из 149 пакетов
+sudo zypper install linuxwave   # или любой другой из 153 пакетов
 ```
 
 Для Leap 16.0 замените `tumbleweed` в URL на `leap-16.0`.
@@ -77,7 +77,7 @@ sudo zypper --gpg-auto-import-keys refresh
 
 | Проект | Роль |
 |--------|------|
-| `arcticlore/candy-opensuse` | **production stable**: 149 пакетов, сервируется юзерам |
+| `arcticlore/candy-opensuse` | **production stable**: 153 пакета, сервируется юзерам |
 | `arcticlore/candy-opensuse-pilot` | **staging**: свежие версии обкатываются на 4 chroot |
 | `arcticlore/candy-opensuse-beta` | **retired**: старая боёвка, read-only, перенесена в stable |
 

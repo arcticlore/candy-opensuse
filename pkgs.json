@@ -135,7 +135,9 @@
    "alt": "cargo install sd",
    "cdir": "sd-cli",
    "install_cmd": "cd ..\ninstall -Dpm0755 target/release/sd %{buildroot}%{_bindir}/sd",
-   "topdir": "sd-1.1.0"
+   "topdir": "sd-1.1.0",
+   "enabled": false,
+   "note": "В официальном репозитории openSUSE уже есть актуальная версия (tumbleweed: sd 1.1.0; leap16-oss: sd 1.0.0+g0) — собственная сборка не нужна. Запись оставлена для паритета имён с parity-репозиторием."
   },
   {
    "name": "xh",
@@ -154,7 +156,9 @@
    ],
    "use": "xh GET https://api.github.com",
    "alt": "cargo install xh или бинарники Releases",
-   "topdir": "xh-0.26.2"
+   "topdir": "xh-0.26.2",
+   "enabled": false,
+   "note": "В официальном репозитории openSUSE уже есть актуальная версия (tumbleweed: xh 0.26.3; leap16-oss: xh 0.26.2) — собственная сборка не нужна. Запись оставлена для паритета имён с parity-репозиторием."
   },
   {
    "name": "curlie",
@@ -170,7 +174,9 @@
    "gpkg": ".",
    "prio": 1,
    "use": "curlie https://api.github.com",
-   "topdir": "%{name}-%{version}"
+   "topdir": "%{name}-%{version}",
+   "enabled": false,
+   "note": "В официальном репозитории openSUSE уже есть актуальная версия (tumbleweed: curlie 1.8.2; leap16-oss: curlie 1.7.2) — собственная сборка не нужна. Запись оставлена для паритета имён с parity-репозиторием."
   },
   {
    "name": "viddy",
@@ -1198,7 +1204,9 @@
    "prio": 4,
    "use": "jp2a photo.jpg --width=80",
    "alt": "./autogen.sh && make && make install из исходников",
-   "topdir": "%{name}-%{version}"
+   "topdir": "%{name}-%{version}",
+   "enabled": false,
+   "note": "В официальном репозитории openSUSE уже есть актуальная версия (tumbleweed: jp2a 1.3.3; leap16-oss: jp2a 1.3.0) — собственная сборка не нужна. Запись оставлена для паритета имён с parity-репозиторием."
   },
   {
    "name": "artem",
@@ -1214,7 +1222,9 @@
    "prio": 4,
    "use": "artem photo.jpg — картинка в ASCII",
    "alt": "cargo install artem",
-   "topdir": "artem-3.0.0"
+   "topdir": "artem-3.0.0",
+   "enabled": false,
+   "note": "В официальном репозитории openSUSE уже есть актуальная версия (tumbleweed: artem 3.0.0; leap16-oss: artem 3.0.0) — собственная сборка не нужна. Запись оставлена для паритета имён с parity-репозиторием."
   },
   {
    "name": "viu",
@@ -1230,7 +1240,9 @@
    "prio": 4,
    "use": "viu photo.jpg — картинка прямо в терминале",
    "alt": "cargo install viu",
-   "topdir": "viu-1.6.1"
+   "topdir": "viu-1.6.1",
+   "enabled": false,
+   "note": "В официальном репозитории openSUSE уже есть актуальная версия (tumbleweed: viu 1.6.1; leap16-oss: viu 1.5.0) — собственная сборка не нужна. Запись оставлена для паритета имён с parity-репозиторием."
   },
   {
    "name": "durdraw",
@@ -1696,7 +1708,9 @@
    "prio": 3,
    "alt": "cargo install ttyper --locked",
    "use": "ttyper — тест слепой печати (ru: --language ru1000)",
-   "topdir": "ttyper-1.6.0"
+   "topdir": "ttyper-1.6.0",
+   "enabled": false,
+   "note": "В официальном репозитории openSUSE уже есть актуальная версия (tumbleweed: ttyper 1.6.0; leap16-oss: ttyper 1.6.0) — собственная сборка не нужна. Запись оставлена для паритета имён с parity-репозиторием."
   },
   {
    "name": "csview",
@@ -1816,7 +1830,9 @@
    ],
    "exp": true,
    "prio": 5,
-   "topdir": "choose-1.3.7"
+   "topdir": "choose-1.3.7",
+   "enabled": false,
+   "note": "В официальном репозитории openSUSE уже есть актуальная версия (tumbleweed: choose 1.3.7; leap16-oss: choose 1.3.6) — собственная сборка не нужна. Запись оставлена для паритета имён с parity-репозиторием."
   },
   {
    "name": "broot",
@@ -2015,7 +2031,9 @@
    "use": "typioca — печать на скорость",
    "prio": 3,
    "gpkg": ".",
-   "topdir": "%{name}-%{version}"
+   "topdir": "%{name}-%{version}",
+   "enabled": false,
+   "note": "В официальном репозитории openSUSE уже есть актуальная версия (tumbleweed: typioca 3.1.0; leap16-oss: typioca 3.1.0) — собственная сборка не нужна. Запись оставлена для паритета имён с parity-репозиторием."
   },
   {
    "name": "bacon",
@@ -2060,7 +2078,9 @@
    ],
    "use": "grex a1 b2 → '^a[12]b[12]$'",
    "prio": 2,
-   "topdir": "grex-1.4.6"
+   "topdir": "grex-1.4.6",
+   "enabled": false,
+   "note": "В официальном репозитории openSUSE уже есть актуальная версия (tumbleweed: grex 1.4.6; leap16-oss: grex 1.4.5) — собственная сборка не нужна. Запись оставлена для паритета имён с parity-репозиторием."
   },
   {
    "name": "himalaya",
@@ -2150,7 +2170,9 @@
    "prio": 2,
    "gpkg": ".",
    "topdir": "%{name}-%{version}",
-   "version": "0.15.6"
+   "version": "0.15.6",
+   "enabled": false,
+   "note": "В официальном репозитории openSUSE уже есть актуальная версия (tumbleweed: zk 0.15.7; leap16-oss: zk 0.15.6) — собственная сборка не нужна. Запись оставлена для паритета имён с parity-репозиторием."
   },
   {
    "name": "cyme",
@@ -2528,7 +2550,9 @@
    "prio": 3,
    "use": "toipe — запуск без аргументов",
    "alt": "cargo install toipe --locked",
-   "topdir": "toipe-0.5.0"
+   "topdir": "toipe-0.5.0",
+   "enabled": false,
+   "note": "В официальном репозитории openSUSE уже есть актуальная версия (tumbleweed: toipe 0.5.0+g0; leap16-oss: toipe 0.5.0+g0) — собственная сборка не нужна. Запись оставлена для паритета имён с parity-репозиторием."
   },
   {
    "name": "tty-solitaire",
@@ -2598,22 +2622,6 @@
    "topdir": "delta-0.19.2"
   },
   {
-   "name": "duf",
-   "eco": "go",
-   "host": "github",
-   "slug": "muesli/duf",
-   "tagp": "v",
-   "summary": "Дисковое использование в терминале (Disk Usage/Free)",
-   "license": "MIT AND BSD-3-Clause",
-   "bins": [
-    "duf"
-   ],
-   "license_file": "LICENSE",
-   "prio": 3,
-   "use": "duf",
-   "topdir": "duf-v0.9.1"
-  },
-  {
    "name": "hexyl",
    "eco": "cargo",
    "host": "github",
@@ -2633,22 +2641,6 @@
    "topdir": "hexyl-v0.17.0"
   },
   {
-   "name": "zoxide",
-   "eco": "cargo",
-   "host": "github",
-   "slug": "ajeetdsouza/zoxide",
-   "tagp": "v",
-   "summary": "Умный cd для терминала (smarter cd)",
-   "license": "MIT",
-   "bins": [
-    "zoxide"
-   ],
-   "license_file": "LICENSE",
-   "prio": 3,
-   "use": "zoxide add /path; cd превращается в z",
-   "topdir": "zoxide-v0.10.0"
-  },
-  {
    "name": "tarts",
    "eco": "cargo",
    "host": "github",
@@ -2663,22 +2655,6 @@
    "prio": 3,
    "use": "tarts <эффект>",
    "topdir": "tarts-v0.1.25"
-  },
-  {
-   "name": "dust",
-   "eco": "cargo",
-   "host": "github",
-   "slug": "bootandy/dust",
-   "tagp": "v",
-   "summary": "Более интуитивное du (disk usage)",
-   "license": "Apache-2.0",
-   "bins": [
-    "dust"
-   ],
-   "license_file": "LICENSE",
-   "prio": 3,
-   "use": "dust /path — таблица размеров каталогов",
-   "topdir": "dust-v1.2.6"
   },
   {
    "name": "csvlens",
@@ -3034,23 +3010,6 @@
    "note": "libgit2-sys собирается из исходников: нужны cmake, pkgconf и zlib-devel"
   },
   {
-   "name": "procs",
-   "eco": "cargo",
-   "host": "github",
-   "slug": "dalance/procs",
-   "tagp": "v",
-   "summary": "Современная замена ps на Rust",
-   "license": "MIT",
-   "bins": [
-    "procs"
-   ],
-   "topdir": "%{name}-%{version}",
-   "prio": 2,
-   "boost": true,
-   "use": "procs имя — поиск процессов",
-   "alt": "cargo install procs"
-  },
-  {
    "name": "mprocs",
    "eco": "cargo",
    "host": "github",
@@ -3116,9 +3075,10 @@
    "gpkg": ".",
    "topdir": "%{name}-%{version}",
    "prio": 3,
-   "boost": true,
    "use": "dive образ:тег — что в каком слое",
-   "alt": "go install github.com/wagoodman/dive@latest"
+   "alt": "go install github.com/wagoodman/dive@latest",
+   "enabled": false,
+   "note": "В официальном репозитории openSUSE уже есть актуальная версия (tumbleweed: dive 0.13.1; leap16-oss: dive 0.12.0) — собственная сборка не нужна. Запись оставлена для паритета имён с parity-репозиторием."
   },
   {
    "name": "gron",
@@ -3134,9 +3094,10 @@
    "gpkg": ".",
    "topdir": "%{name}-%{version}",
    "prio": 3,
-   "boost": true,
    "use": "curl -s api | gron | grep token",
-   "alt": "go install github.com/tomnomnom/gron@latest"
+   "alt": "go install github.com/tomnomnom/gron@latest",
+   "enabled": false,
+   "note": "В официальном репозитории openSUSE уже есть актуальная версия (tumbleweed: gron 0.7.1; leap16-oss: gron 0.7.1) — собственная сборка не нужна. Запись оставлена для паритета имён с parity-репозиторием."
   },
   {
    "name": "freeze",
@@ -3175,24 +3136,6 @@
    "use": "nyancat — выход Ctrl+C",
    "alt": "telnet nyancat.dakko.us",
    "note": "корневой Makefile только делегирует в src/; install-цели нет — ставим бинарь вручную"
-  },
-  {
-   "name": "cpufetch",
-   "eco": "c-make",
-   "host": "github",
-   "slug": "Dr-Noob/cpufetch",
-   "tagp": "v",
-   "summary": "ASCII-арт с информацией о процессоре",
-   "license": "GPL-2.0-only",
-   "bins": [
-    "cpufetch"
-   ],
-   "install_cmd": "%make_install PREFIX=%{_prefix}",
-   "topdir": "%{name}-%{version}",
-   "prio": 3,
-   "boost": true,
-   "use": "cpufetch — логотип и характеристики CPU",
-   "alt": "github.com/Dr-Noob/cpufetch#installation"
   },
   {
    "name": "fzf",
@@ -3265,24 +3208,6 @@
    "boost": true,
    "use": "chezmoi init --apply <репозиторий>",
    "alt": "go install github.com/twpayne/chezmoi/v2@latest"
-  },
-  {
-   "name": "yq",
-   "eco": "go",
-   "host": "github",
-   "slug": "mikefarah/yq",
-   "tagp": "v",
-   "summary": "Процессор YAML/JSON/XML в стиле jq",
-   "license": "MIT",
-   "bins": [
-    "yq"
-   ],
-   "gpkg": ".",
-   "topdir": "%{name}-%{version}",
-   "prio": 2,
-   "boost": true,
-   "use": "yq '.services.web.image' compose.yaml",
-   "alt": "go install github.com/mikefarah/yq/v4@latest"
   },
   {
    "name": "gh-dash",
@@ -3407,29 +3332,6 @@
    "boost": true,
    "use": "process-compose up — поднять стек из process-compose.yaml",
    "alt": "go install github.com/f1bonacc1/process-compose@latest"
-  },
-  {
-   "name": "btop",
-   "eco": "c-make",
-   "host": "github",
-   "slug": "aristocratos/btop",
-   "tagp": "v",
-   "summary": "Монитор ресурсов с мышью и графиками, замена htop",
-   "license": "Apache-2.0",
-   "bins": [
-    "btop"
-   ],
-   "br": [
-    "gcc-c++"
-   ],
-   "noman": true,
-   "install_cmd": "install -Dpm0755 bin/btop %{buildroot}%{_bindir}/btop",
-   "topdir": "%{name}-%{version}",
-   "prio": 2,
-   "boost": true,
-   "use": "btop — обзор CPU/памяти/дисков/сети",
-   "alt": "snap install btop",
-   "note": "upstream install ставит ещё темы/.desktop/иконки — %files их не покрывает, поэтому ставим только бинарь (Makefile кладёт его в bin/)"
   }
  ]
 }
