@@ -17,6 +17,7 @@
 """
 import json
 import os
+import pathlib
 import re
 import subprocess
 import tempfile
@@ -536,3 +537,62 @@ def update_wf():
 def mg():
     import merge_gate
     return merge_gate
+
+
+class TestTokenReachesScripts:
+    """Скрипт, читающий GITHUB_TOKEN, обязан получать его от шага.
+
+    Баг проявлялся дважды и оба раза молча: шаг отдавал COPR-секрет и
+    всё нужное для сборки, но не GITHUB_TOKEN, а bin/make-srpm.sh через
+    bin/api_ver.sh ходит в api.github.com. Без токена это анонимные 60
+    запросов в час на общий IP раннера — на матрице пакетов лимит
+    заканчивается, и сборка падает с «апстрим-версия недоступна», хотя
+    сам пакет полностью исправен.
+    """
+
+    EXEMPT: set = set()
+
+    def _hungry(self):
+        names = set()
+        root = pathlib.Path(ROOT) / "bin"
+        for p in list(root.glob("*.py")) + list(root.glob("*.sh")):
+            if p.name in self.EXEMPT:
+                continue
+            t = p.read_text(encoding="utf-8", errors="replace")
+            if ('environ.get("GITHUB_TOKEN"' in t
+                    or 'environ["GITHUB_TOKEN"]' in t
+                    or "${GITHUB_TOKEN" in t):
+                names.add(p.name)
+        return names
+
+    @staticmethod
+    def _invokes(run, script):
+        """Реальный запуск, а не упоминание имени в тексте/грепе."""
+        return bool(re.search(
+            r"(?:^|[|&;(\s])(?:python3?|bash|sh|\./)?\s*\S*bin/"
+            + re.escape(script) + r"(?:\s|$)", run, re.M))
+
+    def test_every_caller_passes_github_token(self):
+        scripts = self._hungry()
+        assert scripts, "не нашёл ни одного скрипта с GITHUB_TOKEN"
+        problems = []
+        for wf in sorted((pathlib.Path(ROOT) / ".github" / "workflows").glob("*.yml")):
+            doc = yaml.safe_load(wf.read_text(encoding="utf-8")) or {}
+            top = doc.get("env") or {}
+            for jn, job in (doc.get("jobs") or {}).items():
+                if not isinstance(job, dict):
+                    continue
+                je = job.get("env") or {}
+                for st in job.get("steps") or []:
+                    if not isinstance(st, dict):
+                        continue
+                    run = str(st.get("run") or "")
+                    called = sorted(s for s in scripts if self._invokes(run, s))
+                    if not called:
+                        continue
+                    env = {**top, **je, **(st.get("env") or {})}
+                    if "GITHUB_TOKEN" not in env:
+                        problems.append(
+                            f"{wf.name}:{jn}: шаг {st.get('name')!r} вызывает "
+                            f"{', '.join(called)}, но не отдаёт GITHUB_TOKEN")
+        assert problems == [], "\n".join(problems)
