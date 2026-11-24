@@ -1,5 +1,5 @@
 Name:           croc
-Version:        0
+Version:        11.6.6
 Release:        1%{?dist}
 Summary:        Передача файлов между машинами по кодовой фразе
 
@@ -47,5 +47,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/croc
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 11.6.6-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
