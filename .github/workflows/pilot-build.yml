@@ -133,6 +133,11 @@ jobs:
           PKG: ${{ matrix.name }}
           RESUME: ${{ matrix.resume }}
           COPR_CONFIG_SECRET: ${{ secrets.COPR_CONFIG }}
+          # bin/make-srpm.sh -> bin/api_ver.sh -> gh_curl: без токена запросы
+          # к api.github.com идут анонимно, а это 60 в час на общий IP
+          # раннера. На матрице из нескольких пакетов лимит кончается, и
+          # сборка падает с «апстрим-версия недоступна».
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -o pipefail
           name="$PKG"
