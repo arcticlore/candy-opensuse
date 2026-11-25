@@ -1,5 +1,5 @@
 Name:           fd
-Version:        0
+Version:        10.5.2
 Release:        1%{?dist}
 Summary:        Простая и быстрая замена find
 
@@ -54,5 +54,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/fd
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 10.5.2-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)

@@ -1,5 +1,5 @@
 Name:           gdu
-Version:        0
+Version:        5.39.0
 Release:        1%{?dist}
 Summary:        Быстрый анализатор занятого места с TUI
 
@@ -47,5 +47,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/gdu
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 5.39.0-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
