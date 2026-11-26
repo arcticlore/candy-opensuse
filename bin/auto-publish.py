@@ -189,6 +189,35 @@ def api_project(project: str) -> tuple[str, str]:
     return OWNER, project
 
 
+# Транзиентный сбой сети не должен ронять всю волну. Прогоны 45176604500 и
+# 45820910235 упали одинаково: «COPR API недоступен ... [Errno 101] Network
+# is unreachable» на первом же запросе, без единой повторной попытки.
+# Ретраим только то, что осмысленно ретраить: недоступность сети, таймаут и
+# 5xx. На 4xx и битом JSON повторять нечего — это настоящая ошибка.
+COPR_ATTEMPTS = 3
+
+
+def _get_json_retrying(req, *, attempts: int = COPR_ATTEMPTS,
+                       sleep=time.sleep, opener=None):
+    import urllib.error
+    import urllib.request
+    call = opener or urllib.request.urlopen
+    last: Exception | None = None
+    for i in range(attempts):
+        try:
+            with call(req, timeout=40) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500:
+                raise
+            last = exc
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            last = exc
+        if i + 1 < attempts:
+            sleep(2 * (i + 1))
+    raise last if last else RuntimeError("retry loop ended without result")
+
+
 def fetch_builds(owner: str, name: str, token: str | None) -> list[dict]:
     """Все билды проекта (полная пагинация). ApiError если API недоступен."""
     builds: list[dict] = []
@@ -201,8 +230,7 @@ def fetch_builds(owner: str, name: str, token: str | None) -> list[dict]:
         if token:
             req.add_header("Authorization", f"Bearer {token}")
         try:
-            with urllib.request.urlopen(req, timeout=40) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+            data = _get_json_retrying(req)
         except Exception as exc:  # network / HTTP / JSON
             raise WaveError(f"COPR API недоступен для {owner}/{name}: {exc}") from exc
         items = data.get("items")
