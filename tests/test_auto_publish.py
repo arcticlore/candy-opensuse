@@ -1514,3 +1514,66 @@ class TestBoostPriority:
         """
         got = [p["name"] for p in mod.prioritize(self.PKGS, published={})]
         assert got[:2] == ["fd", "nyancat"]
+
+
+class TestCoprRetry:
+    """Транзиентный сбой сети не должен ронять всю волну.
+
+    Прогоны 45176604500 и 45820910235 упали одинаково: «COPR API
+    недоступен ... [Errno 101] Network is unreachable» на первом же
+    запросе, без единой повторной попытки. Ретраим только то, что
+    осмысленно: недоступность сети, таймаут и 5xx.
+    """
+
+    @staticmethod
+    def _resp(payload):
+        import contextlib
+        import io
+        import json as _json
+
+        @contextlib.contextmanager
+        def cm(*_a, **_k):
+            yield io.BytesIO(_json.dumps(payload).encode())
+        return cm
+
+    def test_network_error_is_retried_then_succeeds(self, mod):
+        import urllib.error
+        calls = {"n": 0}
+        ok = self._resp({"items": []})
+
+        def flaky(req, timeout=40):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise urllib.error.URLError("Network is unreachable")
+            return ok()
+
+        got = mod._get_json_retrying(object(), sleep=lambda _s: None,
+                                     opener=flaky)
+        assert got == {"items": []}
+        assert calls["n"] == 3
+
+    def test_client_error_is_not_retried(self, mod):
+        import urllib.error
+        calls = {"n": 0}
+
+        def denied(req, timeout=40):
+            calls["n"] += 1
+            raise urllib.error.HTTPError("u", 404, "nope", {}, None)
+
+        with pytest.raises(urllib.error.HTTPError):
+            mod._get_json_retrying(object(), sleep=lambda _s: None,
+                                   opener=denied)
+        assert calls["n"] == 1, "4xx повторять нечего"
+
+    def test_gives_up_after_the_last_attempt(self, mod):
+        import urllib.error
+        calls = {"n": 0}
+
+        def dead(req, timeout=40):
+            calls["n"] += 1
+            raise urllib.error.URLError("Network is unreachable")
+
+        with pytest.raises(urllib.error.URLError):
+            mod._get_json_retrying(object(), sleep=lambda _s: None,
+                                   opener=dead)
+        assert calls["n"] == mod.COPR_ATTEMPTS
