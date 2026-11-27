@@ -1,5 +1,5 @@
 Name:           gh-dash
-Version:        0
+Version:        4.26.3
 Release:        1%{?dist}
 Summary:        Дашборд pull request'ов и issue прямо в терминале
 
@@ -49,5 +49,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/gh-dash
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 4.26.3-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
