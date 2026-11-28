@@ -1,5 +1,5 @@
 Name:           serie
-Version:        0
+Version:        0.11.0
 Release:        1%{?dist}
 Summary:        Граф истории git в виде насыщенного TUI
 
@@ -54,5 +54,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/serie
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 0.11.0-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
