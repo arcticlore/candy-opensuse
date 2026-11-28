@@ -1,5 +1,5 @@
 Name:           xplr
-Version:        0
+Version:        1.2.2
 Release:        1%{?dist}
 Summary:        Гибкий файловый менеджер в терминале со скриптами на Lua
 
@@ -54,5 +54,5 @@ for f in LICEN[CS]E* COPYING* COPYRIGHT* NOTICE*; do [ -e "$f" ] && cp -p "$f" %
 %{_bindir}/xplr
 
 %changelog
-* Sat Sep 19 2026 candy-bot <candy@localhost> - 0-1
+* Sat Sep 19 2026 candy-bot <candy@localhost> - 1.2.2-1
 - Автосборка из апстрим-релиза (terminal-eye-candy pipeline)
